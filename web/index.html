@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Language Duel</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="spinnerOverlay" class="spinner-overlay" style="display:none">
+      <div class="spinner-card">
+        <div class="spinner-header">
+          <span id="turnLabel">Turno: -</span>
+          <button id="spinBtn" disabled>Girar</button>
+        </div>
+        <div class="wheel-wrap">
+          <div id="wheel" class="wheel"></div>
+          <div class="pointer">▼</div>
+        </div>
+        <div id="topicLegend" class="legend"></div>
+      </div>
+    </div>
+    <div id="overlay" class="overlay">
+      <div class="card">
+        <h1>Language Duel</h1>
+        <div class="row">
+          <label>Name</label>
+          <input id="name" placeholder="Your name" maxlength="20" />
+        </div>
+        <div class="row">
+          <label>Learn</label>
+          <select id="language">
+            <option>English</option>
+            <option>Spanish</option>
+          </select>
+        </div>
+        <div class="row">
+          <label>Native</label>
+          <select id="native">
+            <option>Spanish</option>
+            <option>English</option>
+          </select>
+        </div>
+        <div class="row split">
+          <button id="createRoom">Create Room</button>
+          <span>or</span>
+          <input id="roomCode" placeholder="Room code" maxlength="6" />
+          <button id="joinRoom">Join</button>
+        </div>
+        <p id="status" class="status"></p>
+      </div>
+    </div>
+
+    <header>
+      <div class="room-info">
+        <span id="roomLabel">Room: -</span>
+        <span id="roundLabel">Round: 0</span>
+      </div>
+    </header>
+
+    <main class="arena">
+      <section class="panel" id="left">
+        <h2>You</h2>
+        <div class="life"><div id="lifeYou" class="bar" style="width:100%"></div></div>
+        <div class="cards">
+          <h4>Cartas</h4>
+          <div id="yourCards" class="card-list"></div>
+        </div>
+        <div class="prompt">
+          <h3>Your Prompt</h3>
+          <p id="yourPrompt">Waiting...</p>
+        </div>
+        <textarea id="yourAnswer" rows="6" placeholder="Write your answer..."></textarea>
+        <div class="row split">
+          <button id="submit">Submit</button>
+          <button id="aiAssistBtn" disabled>AI Assist</button>
+        </div>
+        <div class="feedback">
+          <h4>Feedback</h4>
+          <pre id="yourFeedback"></pre>
+        </div>
+        <div class="history">
+          <h4>Historial</h4>
+          <div id="yourHistory" class="history-list"></div>
+        </div>
+      </section>
+
+      <section class="panel alt" id="right">
+        <h2>Opponent</h2>
+        <div class="life"><div id="lifeOpp" class="bar" style="width:100%"></div></div>
+        <div class="cards">
+          <h4>Cartas Oponente</h4>
+          <div id="oppCards" class="card-list"></div>
+        </div>
+        <div class="prompt">
+          <h3>Opponent Prompt</h3>
+          <p id="oppPrompt">Waiting...</p>
+        </div>
+        <div class="feedback">
+          <h4>Opponent Feedback</h4>
+          <pre id="oppFeedback"></pre>
+        </div>
+        <div class="history">
+          <h4>Historial Oponente</h4>
+          <div id="oppHistory" class="history-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span id="info"></span>
+      <div id="cooldown" class="cooldown" style="display:none">
+        <span id="cooldownLabel">Tiempo de repaso: 30s</span>
+        <button id="skipBtn">Saltar</button>
+      </div>
+    </footer>
+
+    <script src="main.js"></script>
+  </body>
+  </html>

@@ -1,0 +1,17 @@
+{
+  "name": "language-duel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "1v1 language practice game with AI evaluation (OpenRouter + DeepSeek)",
+  "main": "server/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "ws": "^8.18.0"
+  }
+}
