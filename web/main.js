@@ -668,7 +668,13 @@
   }
 
   if (pgMore) pgMore.addEventListener('click', () => { send({ type: 'playground_more' }); });
-  if (pgExit) pgExit.addEventListener('click', () => { send({ type: 'exit_playground' }); });
+  if (pgExit) pgExit.addEventListener('click', () => {
+    send({ type: 'exit_playground' });
+    // Optimistic UI: hide overlay immediately
+    inPlayground = false;
+    if (playgroundOverlay) playgroundOverlay.style.display = 'none';
+    if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single') ? '' : 'none';
+  });
   if (pgSubmit) pgSubmit.addEventListener('click', () => {
     const items = Array.from(document.querySelectorAll('.pg-item'));
     const answers = items.map((it) => ({ id: it.getAttribute('data-id'), answer: (it.querySelector('textarea')?.value || '').trim() }));
@@ -725,6 +731,13 @@
       </div>
     `).join('');
   }
+
+  // Allow Esc to exit playground quickly
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && inPlayground) {
+      if (pgExit) pgExit.click();
+    }
+  });
 
   function updateWheelColors() {
     // Ensure fallback CSS wheel is sized correctly as well

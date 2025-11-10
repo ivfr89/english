@@ -28,6 +28,8 @@ pre { background: #0a0f1c; border: 1px solid #223; padding: 8px; border-radius: 
 
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .overlay .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 10px; padding: 16px; width: min(520px, 92vw); }
+.pg-card { width: min(700px, 96vw); max-height: 92vh; overflow: auto; }
+.pg-columns { display: flex; gap: 12px; }
 .overlay .card h2 { margin: 0 0 8px 0; }
 .muted { color: var(--muted); font-size: 13px; }
 .pg-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; }
@@ -72,6 +74,8 @@ input, select { background: #0a0f1c; border: 1px solid #223; color: var(--text);
 @media (max-width: 700px) {
   .mobile-only { display: inline-block; margin-left: auto; }
   .legend { grid-template-columns: 1fr; }
+  .pg-columns { flex-direction: column; }
+  .pg-card { width: 96vw; }
 }
 
 /* Spinner overlay */

@@ -145,14 +145,14 @@
 
     <!-- Playground overlay (single-player) -->
     <div id="playgroundOverlay" class="overlay" style="display:none">
-      <sl-card class="card" style="width:min(680px,96vw)">
+      <sl-card class="card pg-card">
         <h2>Playground</h2>
         <p id="pgIntro" class="muted">Refuerza tus puntos débiles según tus respuestas.</p>
         <div class="row" style="gap:8px; align-items:flex-start; margin:6px 0">
           <textarea id="pgNewNote" rows="2" placeholder="Añade una nota para practicar..."></textarea>
           <sl-button id="pgAddNote" variant="neutral">Añadir a favoritos</sl-button>
         </div>
-        <div class="row" style="gap:12px; align-items:flex-start; margin:6px 0">
+        <div class="row pg-columns" style="align-items:flex-start; margin:6px 0">
           <div style="flex:2">
             <h3 style="margin:0 0 6px 0">Ejercicios</h3>
             <div id="pgList" class="pg-list"></div>
