@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { createEvaluator } from './lib/evaluator.js';
 import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise, getHints } from './lib/exercise.js';
+import { createStore } from './lib/store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +48,8 @@ app.get('/healthz', (_req, res) => res.json({ ok: true }));
 const rooms = new Map();
 const evaluator = createEvaluator();
 const exerciseGen = createExerciseGenerator();
+const store = createStore(process.env.DATABASE_URL);
+if (store && typeof store.init === 'function') { store.init().catch(() => {}); }
 
 const AUTO_BOT = process.env.AUTO_BOT === '1' || process.env.AUTO_BOT === 'true';
 
@@ -62,6 +65,73 @@ function schedule(fn, ms = 600) {
   return setTimeout(() => {
     try { fn(); } catch { /* noop */ }
   }, ms);
+}
+
+function makeId(prefix = 'ex') {
+  return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getPlayer(room, id) {
+  return room && room.players ? room.players[id] : null;
+}
+
+function analyzeWeaknesses(room) {
+  const hist = (room.history || []).filter(h => h.playerId === 'p1').slice(-6);
+  const text = hist.map(h => `${h.feedback || ''}\n${h.corrections || ''}`).join('\n').toLowerCase();
+  const issues = new Set();
+  if (/\bbuy to you\b|\bbuy to u\b/.test(text)) issues.add('prepositions');
+  if (/necces+ary|neces+ary|recieve|occured|seperat/.test(text)) issues.add('spelling');
+  if (/\bi\b/.test(text)) issues.add('capitalization');
+  if (/article|the\s+\w+\s+is\s+the\s+\w+/.test(text)) issues.add('articles');
+  if (/tense|past|present|future/.test(text)) issues.add('tenses');
+  if (issues.size === 0) issues.add('fluency');
+  return Array.from(issues).slice(0, 3);
+}
+
+function proposePlayground(room, more = false) {
+  const player = getPlayer(room, 'p1') || { learningLanguage: 'English', nativeLanguage: 'Spanish' };
+  const lang = player.learningLanguage || 'English';
+  const issues = analyzeWeaknesses(room);
+  const templates = {
+    prepositions: [
+      { kind: 'rephrase', title: 'Prepositions – rephrase', prompt: `In ${lang}, rephrase to fix prepositions: "I will buy to you a new book."` },
+      { kind: 'fill', title: 'Prepositions – fill-in', prompt: `Complete with the correct preposition in ${lang}: "I apologized ___ being late, and paid ___ cash."` },
+    ],
+    spelling: [
+      { kind: 'dictation', title: 'Spelling – correct it', prompt: `Rewrite this in ${lang} fixing spelling: "It is neccesary to recieve your adress to procede."` },
+    ],
+    capitalization: [
+      { kind: 'edit', title: 'Capitalization – edit', prompt: `Rewrite properly capitalized in ${lang}: "i think i can help if i have time."` },
+    ],
+    articles: [
+      { kind: 'fill', title: 'Articles – choose', prompt: `Choose a/an/— in ${lang} and rewrite: "___ honest answer is ___ important step."` },
+    ],
+    tenses: [
+      { kind: 'transform', title: 'Tenses – transform', prompt: `Rewrite in ${lang} using the past perfect: "I finish the report before the meeting."` },
+    ],
+    fluency: [
+      { kind: 'expand', title: 'Fluency – expand', prompt: `In ${lang}, expand the reply to 3–4 lines with natural connectors: "A: Can you help me with this issue?\nB: Sure."` },
+    ],
+  };
+  const chosen = [];
+  for (const issue of issues) {
+    const pool = templates[issue] || templates.fluency;
+    pool.forEach(t => chosen.push({ id: makeId('pg'), kind: t.kind, title: t.title, prompt: t.prompt }));
+  }
+  // Limit to 3 exercises
+  return chosen.slice(0, 3);
+}
+
+function proposePlaygroundFromNote(room, noteText) {
+  const player = getPlayer(room, 'p1') || { learningLanguage: 'English' };
+  const lang = player.learningLanguage || 'English';
+  const base = String(noteText || '').slice(0, 300);
+  const arr = [
+    { kind: 'rephrase', title: 'Rephrase with natural tone', prompt: `In ${lang}, rewrite more naturally: "${base}"` },
+    { kind: 'synonyms', title: 'Use synonyms', prompt: `In ${lang}, rewrite using 1–2 synonyms for key words: "${base}"` },
+    { kind: 'example', title: 'New example', prompt: `In ${lang}, write a short (2–3 lines) example using this idea: "${base}"` },
+  ];
+  return arr.map(t => ({ id: makeId('pg'), kind: t.kind, title: t.title, prompt: t.prompt }));
 }
 
 function simulateSpinTopic(room) {
@@ -166,6 +236,7 @@ function roomSnapshot(room) {
     })),
     prompts: room.prompts,
     hints: room.hints || {},
+    playground: room.playground || null,
     lastResults: room.lastResults || null,
     history: (room.history || []).slice(-50),
     topics: room.stage === 'subtopic' && room.lastCategory ? getSubtopics(room.lastCategory) : TOPICS,
@@ -181,6 +252,8 @@ function startRound(room, categoryKey, subtopicKey) {
   room.lastCategory = categoryKey || room.lastCategory || 'work-conversation';
   room.lastSubtopic = subtopicKey || room.lastSubtopic || null;
   room.stage = 'topic';
+  // Leaving playground if it was active
+  if (room.status === 'playground') room.status = 'playing';
 
   // Reset round buffs and one-time flags
   room.buffs = room.buffs || {};
@@ -397,6 +470,8 @@ wss.on('connection', (ws) => {
   function send(data) {
     if (ws.readyState === 1) ws.send(JSON.stringify(data));
   }
+
+  // getPlayer defined globally above
 
   ws.on('message', async (raw) => {
     let msg;
@@ -681,6 +756,51 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // --- Playground (single-player) ---
+    if (msg.type === 'enter_playground' && room && room.mode === 'single') {
+      if (room.status === 'spinning' || room.status === 'evaluating') return;
+      room.playground = room.playground || {};
+      room.playground.prevStatus = room.status;
+      room.status = 'playground';
+      const exercises = proposePlayground(room);
+      room.playground.exercises = exercises;
+      broadcastRoom(room, { type: 'playground_ready', exercises });
+      broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+
+    if (msg.type === 'playground_more' && room && room.mode === 'single' && room.status === 'playground') {
+      const exercises = proposePlayground(room, true);
+      room.playground.exercises = exercises;
+      broadcastRoom(room, { type: 'playground_ready', exercises });
+      broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+
+    if (msg.type === 'playground_submit' && room && room.mode === 'single' && room.status === 'playground') {
+      const answers = Array.isArray(msg.answers) ? msg.answers : [];
+      const list = (room.playground?.exercises || []).filter(ex => answers.find(a => a.id === ex.id));
+      const results = [];
+      for (const ex of list) {
+        const ans = (answers.find(a => a.id === ex.id)?.answer || '').slice(0, 1000);
+        try {
+          const ev = await evaluator.evaluate({ prompt: ex.prompt, answer: ans, targetLanguage: getPlayer(room, 'p1')?.learningLanguage || 'English' });
+          results.push({ id: ex.id, score: ev.score, feedback: ev.feedback, corrections: ev.corrections || null });
+        } catch {
+          results.push({ id: ex.id, score: 0, feedback: 'Evaluation failed', corrections: null });
+        }
+      }
+      broadcastRoom(room, { type: 'playground_feedback', results });
+      return;
+    }
+
+    if (msg.type === 'exit_playground' && room && room.mode === 'single' && room.status === 'playground') {
+      const prev = room.playground?.prevStatus || 'waiting_spin';
+      room.status = prev;
+      broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+
     // Explain selection (dictionary) using LLM with context, reply in player's native language
     if (msg.type === 'explain_selection' && room && player.id) {
       const pid = player.id;
@@ -696,6 +816,47 @@ wss.on('connection', (ws) => {
         const fallback = mockExplain({ text, context, nativeLanguage: nativeLang, targetLanguage: targetLang });
         send({ type: 'explain_result', text, explanation: fallback });
       }
+      return;
+    }
+
+    // Favorites API (single-player oriented, but allowed anytime per player)
+    if (msg.type === 'add_favorite_note' && room && player.id) {
+      const text = String(msg.text || '').slice(0, 2000).trim();
+      if (!text) return;
+      if (store) { await store.addFavorite({ roomCode: room.code, playerId: player.id, text }); }
+      else {
+        room.favorites = room.favorites || [];
+        room.favorites.unshift({ id: makeId('fav'), text, playerId: player.id, createdAt: Date.now() });
+      }
+      return;
+    }
+    if (msg.type === 'delete_favorite_note' && room && player.id) {
+      const id = String(msg.id || '');
+      if (store) { await store.deleteFavorite(id, player.id, room.code); }
+      else { room.favorites = (room.favorites || []).filter((f) => f.id !== id || f.playerId !== player.id ? true : false); }
+      return;
+    }
+    if (msg.type === 'list_favorites' && room && player.id) {
+      let items;
+      if (store) { items = await store.listFavorites(room.code, player.id); }
+      else { items = (room.favorites || []).filter(f => f.playerId === player.id).slice(0, 50); }
+      send({ type: 'favorites', items });
+      return;
+    }
+    if (msg.type === 'start_playground_note' && room && player.id) {
+      const id = String(msg.id || '');
+      let note = null;
+      if (store) { note = await store.getFavoriteById(id, player.id, room.code); }
+      else { note = (room.favorites || []).find(f => f.id === id && f.playerId === player.id); }
+      if (!note) return;
+      room.playground = room.playground || {};
+      room.playground.prevStatus = room.status;
+      room.playground.noteId = id;
+      room.status = 'playground';
+      const exercises = proposePlaygroundFromNote(room, note.text);
+      room.playground.exercises = exercises;
+      broadcastRoom(room, { type: 'playground_ready', exercises });
+      broadcastRoom(room, roomSnapshot(room));
       return;
     }
   });

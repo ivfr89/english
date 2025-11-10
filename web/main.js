@@ -48,6 +48,16 @@
   const turnLabel = el('turnLabel');
   const topicLegend = el('topicLegend');
   const toggleViewBtn = document.getElementById('toggleViewBtn');
+  const playgroundBtn = el('playgroundBtn');
+  const playgroundOverlay = el('playgroundOverlay');
+  const pgList = el('pgList');
+  const pgSubmit = el('pgSubmit');
+  const pgMore = el('pgMore');
+  const pgExit = el('pgExit');
+  const pgFavs = el('pgFavs');
+  const pgNewNote = el('pgNewNote');
+  const pgAddNote = el('pgAddNote');
+  const addFavBtn = el('addFavBtn');
 
   let playerId = null;
   let roomCode = null;
@@ -74,6 +84,7 @@
   let cooldownTimer = null;
   let cooldownEndsAt = null;
   let mobileView = 'you'; // 'you' | 'opponent'
+  let inPlayground = false;
 
   // Size the wheel immediately on load to avoid oversized initial render
   ensureWheelSize();
@@ -187,6 +198,9 @@
       }
       if (msg.status === 'finished') submit.disabled = true;
       if (Array.isArray(msg.history)) renderHistory(msg.history);
+      inPlayground = msg.status === 'playground';
+      if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single' && !inPlayground) ? '' : 'none';
+      if (playgroundOverlay) playgroundOverlay.style.display = inPlayground ? 'flex' : 'none';
       applyMobileView();
       if ((msg.status === 'waiting_spin' || msg.status === 'waiting_subspin') && msg.turn) setTurn(msg.turn);
       if (!(msg.status === 'waiting_spin' || msg.status === 'waiting_subspin' || msg.status === 'spinning')) spinnerOverlay.style.display = 'none';
@@ -282,6 +296,25 @@
       spinnerOverlay.style.display = 'none';
       toast('✅ Enunciados listos', 'success');
       applyMobileView();
+    }
+
+    if (msg.type === 'playground_ready') {
+      inPlayground = true;
+      if (playgroundOverlay) playgroundOverlay.style.display = 'flex';
+      renderPlayground(msg.exercises || []);
+      send({ type: 'list_favorites' });
+    }
+
+    if (msg.type === 'playground_feedback') {
+      const items = msg.results || [];
+      items.forEach((r) => {
+        const box = document.querySelector(`.pg-item[data-id=\"${r.id}\"] .pg-feedback`);
+        if (box) box.textContent = `Score: ${r.score}\n${r.feedback}${r.corrections ? `\nCorrections: ${r.corrections}` : ''}`;
+      });
+    }
+
+    if (msg.type === 'favorites') {
+      renderFavorites(msg.items || []);
     }
 
     if (msg.type === 'answer_received') {
@@ -599,6 +632,71 @@
       mobileView = mobileView === 'you' ? 'opponent' : 'you';
       applyMobileView();
     });
+  }
+
+  if (playgroundBtn) {
+    playgroundBtn.addEventListener('click', () => {
+      send({ type: 'enter_playground' });
+    });
+  }
+
+  if (pgMore) pgMore.addEventListener('click', () => { send({ type: 'playground_more' }); });
+  if (pgExit) pgExit.addEventListener('click', () => { send({ type: 'exit_playground' }); });
+  if (pgSubmit) pgSubmit.addEventListener('click', () => {
+    const items = Array.from(document.querySelectorAll('.pg-item'));
+    const answers = items.map((it) => ({ id: it.getAttribute('data-id'), answer: (it.querySelector('textarea')?.value || '').trim() }));
+    send({ type: 'playground_submit', answers });
+  });
+
+  if (addFavBtn) addFavBtn.addEventListener('click', () => {
+    const sel = (window.getSelection()?.toString() || '').trim();
+    const text = sel || (yourPrompt?.textContent || '').trim();
+    if (!text) return;
+    send({ type: 'add_favorite_note', text });
+    toast('⭐ Nota guardada', 'success');
+  });
+
+  if (pgAddNote) pgAddNote.addEventListener('click', () => {
+    const text = (pgNewNote?.value || '').trim();
+    if (!text) return;
+    send({ type: 'add_favorite_note', text });
+    pgNewNote.value = '';
+    send({ type: 'list_favorites' });
+  });
+
+  function renderFavorites(list) {
+    if (!pgFavs) return;
+    pgFavs.innerHTML = (list || []).map(f => `
+      <div class="pg-fav" data-id="${f.id}">
+        <div class="text">${escapeHTML(f.text)}</div>
+        <div class="actions">
+          <button data-action="practice">Practicar</button>
+          <button data-action="delete">Eliminar</button>
+        </div>
+      </div>
+    `).join('');
+    pgFavs.querySelectorAll('.pg-fav').forEach((row) => {
+      const id = row.getAttribute('data-id');
+      row.querySelector('[data-action="practice"]').addEventListener('click', () => {
+        send({ type: 'start_playground_note', id });
+      });
+      row.querySelector('[data-action="delete"]').addEventListener('click', () => {
+        send({ type: 'delete_favorite_note', id });
+        send({ type: 'list_favorites' });
+      });
+    });
+  }
+
+  function renderPlayground(exercises) {
+    if (!pgList) return;
+    pgList.innerHTML = exercises.map((ex) => `
+      <div class="pg-item" data-id="${ex.id}">
+        <h4>${escapeHTML(ex.title || ex.kind || 'Ejercicio')}</h4>
+        <div class="muted">${escapeHTML(ex.prompt || '')}</div>
+        <textarea placeholder="Tu respuesta..."></textarea>
+        <div class="pg-feedback"></div>
+      </div>
+    `).join('');
   }
 
   function updateWheelColors() {

@@ -28,6 +28,16 @@ pre { background: #0a0f1c; border: 1px solid #223; padding: 8px; border-radius: 
 
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .overlay .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 10px; padding: 16px; width: min(520px, 92vw); }
+.overlay .card h2 { margin: 0 0 8px 0; }
+.muted { color: var(--muted); font-size: 13px; }
+.pg-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow: auto; }
+.pg-item { background: #0a0f1c; border: 1px solid #223; border-radius: 8px; padding: 8px; }
+.pg-item h4 { margin: 0 0 6px 0; font-size: 14px; color: #cbd5e1; }
+.pg-item textarea { width: 100%; min-height: 80px; }
+.pg-feedback { font-size: 13px; color: #c7f9cc; white-space: pre-wrap; margin-top: 6px; }
+.pg-fav { background: #0a0f1c; border: 1px solid #223; border-radius: 8px; padding: 8px; display:flex; gap:8px; align-items:flex-start; }
+.pg-fav .text { font-size: 13px; color: #e5e7eb; white-space: pre-wrap; flex:1; }
+.pg-fav .actions { display:flex; gap:6px; }
 .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
 .row.split { justify-content: space-between; }
 label { width: 80px; color: var(--muted); }

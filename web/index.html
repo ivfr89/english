@@ -70,6 +70,7 @@
         <span id="roomLabel">Room: -</span>
         <span id="roundLabel">Round: 0</span>
         <button id="toggleViewBtn" class="mobile-only" style="display:none">Ver oponente</button>
+        <sl-button id="playgroundBtn" variant="neutral" style="display:none">Ir a playground</sl-button>
       </div>
     </header>
 
@@ -86,6 +87,9 @@
           <h3>Your Prompt</h3>
           <p id="yourPrompt">Waiting...</p>
           <p id="yourHint" class="hint" style="display:none"></p>
+          <div class="row" style="margin-top:6px">
+            <sl-button id="addFavBtn" size="small" variant="neutral">⭐ Guardar nota</sl-button>
+          </div>
           <div id="dictPopup" class="dict-popup" style="display:none">
             <button id="dictClose" class="dict-close" title="Cerrar">×</button>
             <span id="dictLoader" class="loader" style="display:none"></span>
@@ -138,6 +142,35 @@
         <sl-button id="skipBtn" variant="warning">Saltar</sl-button>
       </div>
     </footer>
+
+    <!-- Playground overlay (single-player) -->
+    <div id="playgroundOverlay" class="overlay" style="display:none">
+      <sl-card class="card" style="width:min(680px,96vw)">
+        <h2>Playground</h2>
+        <p id="pgIntro" class="muted">Refuerza tus puntos débiles según tus respuestas.</p>
+        <div class="row" style="gap:8px; align-items:flex-start; margin:6px 0">
+          <textarea id="pgNewNote" rows="2" placeholder="Añade una nota para practicar..."></textarea>
+          <sl-button id="pgAddNote" variant="neutral">Añadir a favoritos</sl-button>
+        </div>
+        <div class="row" style="gap:12px; align-items:flex-start; margin:6px 0">
+          <div style="flex:2">
+            <h3 style="margin:0 0 6px 0">Ejercicios</h3>
+            <div id="pgList" class="pg-list"></div>
+          </div>
+          <div style="flex:1">
+            <h3 style="margin:0 0 6px 0">Favoritos</h3>
+            <div id="pgFavs" class="pg-list"></div>
+          </div>
+        </div>
+        <div class="row split" style="margin-top:10px">
+          <div style="display:flex; gap:8px; align-items:center">
+            <sl-button id="pgMore" variant="neutral">Más ejercicios</sl-button>
+            <sl-button id="pgSubmit" variant="primary">Enviar</sl-button>
+          </div>
+          <sl-button id="pgExit" variant="warning">Salir del playground</sl-button>
+        </div>
+      </sl-card>
+    </div>
 
     <script defer src="main.js"></script>
   </body>
