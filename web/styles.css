@@ -38,6 +38,9 @@ pre { background: #0a0f1c; border: 1px solid #223; padding: 8px; border-radius: 
 .pg-fav { background: #0a0f1c; border: 1px solid #223; border-radius: 8px; padding: 8px; display:flex; gap:8px; align-items:flex-start; }
 .pg-fav .text { font-size: 13px; color: #e5e7eb; white-space: pre-wrap; flex:1; }
 .pg-fav .actions { display:flex; gap:6px; }
+.pg-prog-item { background: #0a0f1c; border: 1px solid #223; border-radius: 8px; padding: 8px; }
+.pg-prog-item h5 { margin: 0 0 4px 0; font-size: 13px; color: #cbd5e1; }
+.pg-prog-item .muted { font-size: 12px; }
 .row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
 .row.split { justify-content: space-between; }
 label { width: 80px; color: var(--muted); }

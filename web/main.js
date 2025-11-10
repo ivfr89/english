@@ -317,6 +317,33 @@
       renderFavorites(msg.items || []);
     }
 
+    if (msg.type === 'progress_data') {
+      if (!pgProgressBox) return;
+      const hist = msg.history || [];
+      const pgs = msg.playground || [];
+      const histHtml = hist.map((h) => `
+        <div class="pg-prog-item">
+          <h5>Ronda ${h.round} • ${escapeHTML(h.language || '')} • Score ${h.score}</h5>
+          <div class="muted">${escapeHTML(h.prompt || '')}</div>
+          <div style=\"margin-top:4px\">${escapeHTML(h.feedback || '')}${h.corrections ? `\\n${escapeHTML(h.corrections)}` : ''}</div>
+        </div>
+      `).join('');
+      const pgHtml = pgs.map((x) => `
+        <div class="pg-prog-item">
+          <h5>${escapeHTML(x.kind || 'playground')} • Score ${x.score}</h5>
+          <div class="muted">${escapeHTML(x.prompt || '')}</div>
+          <div style=\"margin-top:4px\">${escapeHTML(x.feedback || '')}${x.corrections ? `\\n${escapeHTML(x.corrections)}` : ''}</div>
+        </div>
+      `).join('');
+      pgProgressBox.innerHTML = `
+        <h3 style=\"margin:4px 0\">Historial reciente</h3>
+        ${histHtml || '<div class=\\"muted\\">Sin historial</div>'}
+        <h3 style=\"margin:10px 0 4px 0\">Playground</h3>
+        ${pgHtml || '<div class=\\"muted\\">Sin ejercicios</div>'}
+      `;
+      pgProgressBox.style.display = '';
+    }
+
     if (msg.type === 'answer_received') {
       if (msg.playerId !== playerId) info.textContent = 'Opponent answered.';
     }

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { createEvaluator } from './lib/evaluator.js';
 import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise, getHints } from './lib/exercise.js';
-import { createStore } from './lib/store.js';
+import { createStore, historyStore, playgroundStore } from './lib/store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +49,8 @@ const rooms = new Map();
 const evaluator = createEvaluator();
 const exerciseGen = createExerciseGenerator();
 const store = createStore(process.env.DATABASE_URL);
+const hstore = historyStore(process.env.DATABASE_URL);
+const pgstore = playgroundStore(process.env.DATABASE_URL);
 if (store && typeof store.init === 'function') { store.init().catch(() => {}); }
 
 const AUTO_BOT = process.env.AUTO_BOT === '1' || process.env.AUTO_BOT === 'true';
@@ -402,11 +404,12 @@ async function maybeResolveRound(room) {
     room.lastResults = { results, damage: { p1: dmg } };
   }
 
-  // Append to room history
+  // Append to room history + persist
   room.history = room.history || [];
+  const histItems = [];
   for (const pid of playerIds) {
     if (single && pid !== 'p1') continue;
-    room.history.push({
+    const item = {
       round: room.round,
       playerId: pid,
       prompt: room.prompts[pid] || '',
@@ -415,7 +418,12 @@ async function maybeResolveRound(room) {
       feedback: results[pid]?.feedback || '',
       corrections: results[pid]?.corrections || null,
       language: room.players[pid]?.learningLanguage || '',
-    });
+    };
+    room.history.push(item);
+    histItems.push({ roomCode: room.code, playerId: pid, ...item });
+  }
+  if (hstore && histItems.length) {
+    try { await hstore.addHistoryBulk(histItems); } catch {}
   }
 
   const livesPayload = !single
@@ -791,6 +799,14 @@ wss.on('connection', (ws) => {
         }
       }
       broadcastRoom(room, { type: 'playground_feedback', results });
+      if (pgstore && list.length) {
+        const logs = results.map((r) => {
+          const ex = list.find(e => e.id === r.id) || {};
+          const ans = answers.find(a => a.id === r.id)?.answer || '';
+          return { kind: ex.kind, prompt: ex.prompt, answer: ans, score: r.score, feedback: r.feedback, corrections: r.corrections };
+        });
+        try { await pgstore.logResults(room.code, player.id, logs); } catch {}
+      }
       return;
     }
 
@@ -798,6 +814,22 @@ wss.on('connection', (ws) => {
       const prev = room.playground?.prevStatus || 'waiting_spin';
       room.status = prev;
       broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+
+    if (msg.type === 'playground_progress' && room && player.id) {
+      const pid = player.id;
+      let history = [];
+      let pgl = [];
+      if (hstore) {
+        try { history = await hstore.listRecent(room.code, pid, 20); } catch {}
+      } else {
+        history = (room.history || []).filter(h => h.playerId === pid).slice(-20).reverse();
+      }
+      if (pgstore) {
+        try { pgl = await pgstore.listRecent(room.code, pid, 20); } catch {}
+      }
+      send({ type: 'progress_data', history, playground: pgl });
       return;
     }
 
