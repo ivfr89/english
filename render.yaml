@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: language-duel
+    env: node
+    plan: free
+    healthCheckPath: /healthz
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: deepseek/deepseek-v3.2-exp
+      - key: OPENROUTER_REFERRER
+        sync: false
+      - key: EVAL_MODE
+        value: openrouter
+      - key: PROMPT_FALLBACK_MS
+        value: "9000"
+      - key: AI_ASSIST_TIMEOUT_MS
+        value: "8000"
+      - key: COOLDOWN_MS
+        value: "30000"
+      - key: AUTO_BOT
+        value: "1"
+      - key: DEBUG
+        value: "1"
