@@ -8,16 +8,19 @@
   const langSelect = el('language');
   const nativeSelect = el('native');
   const createBtn = el('createRoom');
+  const singleBtn = el('singlePlayer');
   const joinBtn = el('joinRoom');
   const roomCodeInput = el('roomCode');
   const status = el('status');
 
   const roomLabel = el('roomLabel');
   const roundLabel = el('roundLabel');
-  const lifeYou = el('lifeYou');
-  const lifeOpp = el('lifeOpp');
+  const lifeYouBar = el('lifeYouBar');
+  const lifeOppBar = el('lifeOppBar');
   const yourPrompt = el('yourPrompt');
+  const yourHint = el('yourHint');
   const oppPrompt = el('oppPrompt');
+  const oppHint = el('oppHint');
   const yourAnswer = el('yourAnswer');
   const submit = el('submit');
   const aiAssistBtn = el('aiAssistBtn');
@@ -31,23 +34,101 @@
   const cooldownBox = el('cooldown');
   const cooldownLabel = el('cooldownLabel');
   const skipBtn = el('skipBtn');
+  const spThresholdInput = el('spThreshold');
+  const dictPopup = el('dictPopup');
+  const dictContent = el('dictContent');
+  const dictLoader = el('dictLoader');
+  const dictClose = el('dictClose');
 
   // Spinner UI
   const spinnerOverlay = el('spinnerOverlay');
   const spinBtn = el('spinBtn');
+  const wheelCanvas = el('wheelCanvas');
   const wheel = el('wheel');
   const turnLabel = el('turnLabel');
   const topicLegend = el('topicLegend');
+  const toggleViewBtn = document.getElementById('toggleViewBtn');
 
   let playerId = null;
   let roomCode = null;
   let prompts = {};
   let topics = [];
   let nativeLanguage = 'Spanish';
+  let gameMode = 'duo';
+  let targetThreshold = 70;
   const COLORS = ['#22d3ee', '#0ea5e9', '#f472b6', '#a78bfa', '#34d399', '#fca5a5'];
+  let winWheel = null;
+  const hasSl = true; // vendor shim provides local styling & behavior
+  const hasWinwheel = typeof window.Winwheel !== 'undefined';
+
+  // Fallback visibility if Shoelace is not available
+  // Always show fallback bars (our shim manages sl-progress-bar visually)
+  const lyfb = document.getElementById('lifeYouFallback');
+  const lofb = document.getElementById('lifeOppFallback');
+  if (lyfb) lyfb.style.display = 'none';
+  if (lofb) lofb.style.display = 'none';
+  // Fallback for spinner: show CSS wheel if Winwheel not loaded
+  if (!hasWinwheel && wheel) wheel.style.display = 'block';
+  if (hasWinwheel && wheel) wheel.style.display = 'none';
   let stage = 'topic';
   let cooldownTimer = null;
   let cooldownEndsAt = null;
+  let mobileView = 'you'; // 'you' | 'opponent'
+
+  // Size the wheel immediately on load to avoid oversized initial render
+  ensureWheelSize();
+
+  // --- Lightweight dictionary menu near selection ---
+  let dictMenuEl = null;
+  let lastSelectionText = '';
+  function ensureDictMenu() {
+    if (dictMenuEl) return dictMenuEl;
+    const m = document.createElement('div');
+    m.id = 'dictMenu';
+    m.className = 'dict-menu';
+    m.style.display = 'none';
+    const btn = document.createElement('button');
+    btn.textContent = 'Entender';
+    btn.addEventListener('click', () => {
+      if (!lastSelectionText) return;
+      const text = lastSelectionText.slice(0, 160);
+      const context = (yourPrompt?.textContent || '').slice(0, 2000);
+      if (dictPopup) { dictPopup.style.display = ''; }
+      if (dictLoader) dictLoader.style.display = 'inline-block';
+      if (dictContent) dictContent.textContent = 'Analizando…';
+      send({ type: 'explain_selection', text, context, nativeLanguage });
+      m.style.display = 'none';
+      if (dictPopup) { dictPopup.style.display = ''; dictContent.textContent = 'Analizando…'; }
+    });
+    m.appendChild(btn);
+    document.body.appendChild(m);
+    dictMenuEl = m;
+    return m;
+  }
+  function hideDictMenu() { if (dictMenuEl) dictMenuEl.style.display = 'none'; }
+  function showDictMenuAt(rect) {
+    const m = ensureDictMenu();
+    m.style.left = Math.min(window.innerWidth - 140, Math.max(8, rect.left + window.scrollX)) + 'px';
+    m.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    m.style.display = 'block';
+  }
+  function onSelectionChange() {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !yourPrompt) { hideDictMenu(); return; }
+    const txt = String(sel.toString() || '').trim();
+    if (!txt) { hideDictMenu(); return; }
+    // Only if selection belongs to your prompt
+    const range = sel.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    if (!(yourPrompt.contains(container.nodeType === 1 ? container : container.parentNode))) { hideDictMenu(); return; }
+    lastSelectionText = txt;
+    const rect = range.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0)) { hideDictMenu(); return; }
+    showDictMenuAt(rect);
+  }
+  document.addEventListener('mouseup', () => setTimeout(onSelectionChange, 0));
+  document.addEventListener('keyup', (e) => { if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt') return; setTimeout(onSelectionChange, 0); });
+  if (dictClose) dictClose.addEventListener('click', () => { if (dictPopup) dictPopup.style.display = 'none'; if (dictLoader) dictLoader.style.display = 'none'; });
 
   function send(obj) { ws.send(JSON.stringify(obj)); }
 
@@ -75,23 +156,38 @@
       roomCode = msg.roomCode || roomCode;
       roomLabel.textContent = `Room: ${roomCode || '-'}`;
       roundLabel.textContent = `Round: ${msg.round}`;
+      if (msg.mode) gameMode = msg.mode;
+      if (typeof msg.threshold === 'number') targetThreshold = msg.threshold;
       prompts = msg.prompts || prompts;
       const mePrompt = prompts[playerId];
       const opPrompt = prompts[playerId === 'p1' ? 'p2' : 'p1'];
       const generating = msg.status === 'playing' && (!mePrompt || !opPrompt);
       yourPrompt.textContent = mePrompt || (generating ? 'Generando enunciado...' : 'Waiting...');
       oppPrompt.textContent = opPrompt || (generating ? 'Generando enunciado...' : 'Waiting...');
-      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); updateWheelColors(); }
+      const hints = msg.hints || {};
+      const myHint = hints[playerId];
+      const oHint = hints[playerId === 'p1' ? 'p2' : 'p1'];
+      if (yourHint) { if (myHint) { yourHint.style.display = ''; yourHint.textContent = myHint; } else { yourHint.style.display = 'none'; yourHint.textContent = ''; } }
+      if (oppHint) { if (oHint) { oppHint.style.display = ''; oppHint.textContent = oHint; } else { oppHint.style.display = 'none'; oppHint.textContent = ''; } }
+      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); if (hasWinwheel) buildWheel(); else updateWheelColors(); }
       if (msg.players) {
         const me = msg.players.find((p) => p.id === playerId);
         const op = msg.players.find((p) => p.id !== playerId);
-        lifeYou.style.width = `${me?.life ?? 100}%`;
-        lifeOpp.style.width = `${op?.life ?? 100}%`;
-        renderCards(me?.cards || [], op?.cards || []);
+        if (hasSl) {
+          if (me) lifeYouBar.value = me.life ?? 100;
+          if (op) lifeOppBar.value = op.life ?? 100;
+        } else {
+          const ly = document.getElementById('lifeYou');
+          const lo = document.getElementById('lifeOpp');
+          if (ly && me) ly.style.width = `${me.life ?? 100}%`;
+          if (lo && op) lo.style.width = `${op.life ?? 100}%`;
+        }
+        renderCards(me?.cards || [], op?.cards || [], !!me?.silenced);
         aiAssistBtn.disabled = !me?.aiAssistReady;
       }
       if (msg.status === 'finished') submit.disabled = true;
       if (Array.isArray(msg.history)) renderHistory(msg.history);
+      applyMobileView();
       if ((msg.status === 'waiting_spin' || msg.status === 'waiting_subspin') && msg.turn) setTurn(msg.turn);
       if (!(msg.status === 'waiting_spin' || msg.status === 'waiting_subspin' || msg.status === 'spinning')) spinnerOverlay.style.display = 'none';
       if (msg.status === 'cooldown' && msg.cooldownEndsAt) startCooldown(msg.cooldownEndsAt);
@@ -99,29 +195,52 @@
     }
 
     if (msg.type === 'turn') {
-      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); updateWheelColors(); }
+      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); if (hasWinwheel) buildWheel(); else updateWheelColors(); }
       if (msg.stage) stage = msg.stage;
       setTurn(msg.playerId);
+      applyMobileView();
     }
 
     if (msg.type === 'spin_start') {
-      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); updateWheelColors(); }
+      if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); if (hasWinwheel) buildWheel(); else updateWheelColors(); }
       if (msg.stage) stage = msg.stage;
       spinnerOverlay.style.display = 'flex';
       spinBtn.disabled = true;
-      // Reset rotation then animate to target
-      wheel.style.transition = 'none';
-      wheel.style.transform = 'rotate(0deg)';
-      void wheel.offsetWidth;
-      wheel.style.transition = 'transform 2s cubic-bezier(.2,.8,.2,1)';
-      const target = msg.rotations * 360 + msg.finalAngle;
-      wheel.style.transform = `rotate(${target}deg)`;
+      spinBtn.setAttribute('disabled','');
+      // Fit wheel to viewport
+      ensureWheelSize();
+      if (hasWinwheel) {
+        // Use Winwheel to spin to selected index
+        buildWheel();
+        const n = Math.max(1, (topics || []).length);
+        const slice = 360 / n;
+        const segCenter = (msg.index * slice + slice / 2);
+        // Align segment center to pointer at top (-90deg in canvas)
+        let stopAngle = (-90 - segCenter) % 360; if (stopAngle < 0) stopAngle += 360;
+        try { if (winWheel) winWheel.stopAnimation(false); } catch {}
+        if (winWheel) {
+          winWheel.rotationAngle = 0;
+          winWheel.draw();
+          winWheel.animation = { type: 'spinToStop', duration: 2, spins: msg.rotations || 5, stopAngle, callbackFinished: () => {
+            const spinStage = msg.stage || stage;
+            if (spinStage === 'subtopic') spinnerOverlay.style.display = 'none';
+          }};
+          winWheel.startAnimation();
+        }
+      } else if (wheel) {
+        // CSS fallback rotation
+        const n = Math.max(1, (topics || []).length);
+        const slice = 360 / n;
+        const finalAngle = 360 - (msg.index * slice + slice / 2);
+        wheel.style.transition = 'none';
+        wheel.style.transform = 'rotate(0deg)';
+        void wheel.offsetWidth;
+        wheel.style.transition = 'transform 2s cubic-bezier(.2,.8,.2,1)';
+        wheel.style.transform = `rotate(${(msg.rotations || 5) * 360 + finalAngle}deg)`;
+        const spinStage = msg.stage || stage;
+        setTimeout(() => { if (spinStage === 'subtopic') spinnerOverlay.style.display = 'none'; }, 2300);
+      }
       info.textContent = `${stage === 'subtopic' ? 'Subtema' : 'Tema'} seleccionado: ${localizeTopic(msg.topicKey)}`;
-      // Only hide overlay automatically after subtopic spin.
-      const spinStage = msg.stage || stage;
-      setTimeout(() => {
-        if (spinStage === 'subtopic') spinnerOverlay.style.display = 'none';
-      }, 2300);
     }
 
     if (msg.type === 'cooldown_start') {
@@ -140,6 +259,8 @@
       prompts = {};
       yourPrompt.textContent = 'Generando enunciado...'; yourPrompt.classList.add('fade-in');
       oppPrompt.textContent = 'Generando enunciado...'; oppPrompt.classList.add('fade-in');
+      if (yourHint) { yourHint.style.display = 'none'; yourHint.textContent = ''; }
+      if (oppHint) { oppHint.style.display = 'none'; oppHint.textContent = ''; }
       submit.disabled = true;
       aiAssistBtn.disabled = true;
       info.textContent = `Tema: ${localizeTopic(msg.category)}${msg.subtopic ? ' • ' + localizeTopic(msg.subtopic) : ''}`;
@@ -150,10 +271,17 @@
       prompts = msg.prompts || {};
       yourPrompt.textContent = prompts[playerId] || 'Waiting...'; yourPrompt.classList.add('fade-in');
       oppPrompt.textContent = prompts[playerId === 'p1' ? 'p2' : 'p1'] || 'Waiting...'; oppPrompt.classList.add('fade-in');
+      const hints = msg.hints || {};
+      const myHint = hints[playerId];
+      const oHint = hints[playerId === 'p1' ? 'p2' : 'p1'];
+      if (yourHint) { if (myHint) { yourHint.style.display = ''; yourHint.textContent = myHint; } else { yourHint.style.display = 'none'; yourHint.textContent = ''; } }
+      if (oppHint) { if (oHint) { oppHint.style.display = ''; oppHint.textContent = oHint; } else { oppHint.style.display = 'none'; oppHint.textContent = ''; } }
       info.textContent = `¡Listo! ${msg.subtopic ? 'Subtema' : 'Tema'}: ${localizeTopic(msg.category)}${msg.subtopic ? ' • ' + localizeTopic(msg.subtopic) : ''}. Responde para atacar.`;
       submit.disabled = false;
       // aiAssistBtn may be enabled if a card was played
       spinnerOverlay.style.display = 'none';
+      toast('✅ Enunciados listos', 'success');
+      applyMobileView();
     }
 
     if (msg.type === 'answer_received') {
@@ -162,33 +290,46 @@
 
     if (msg.type === 'evaluating') {
       info.textContent = 'Evaluating answers...';
+      toast('⏳ Evaluando respuestas...', 'primary');
       yourFeedback.textContent = 'Evaluating...'; yourFeedback.classList.add('fade-in');
       oppFeedback.textContent = 'Evaluating...'; oppFeedback.classList.add('fade-in');
       submit.disabled = true;
       spinnerOverlay.style.display = 'none';
     }
 
+    if (msg.type === 'explain_result') {
+      if (typeof msg.text === 'string' && dictContent) {
+        dictContent.textContent = msg.explanation || 'Sin datos.';
+        if (dictPopup) dictPopup.style.display = '';
+        if (dictLoader) dictLoader.style.display = 'none';
+      }
+    }
+
     if (msg.type === 'round_result') {
       const resMe = msg.results[playerId];
-      const resOp = msg.results[playerId === 'p1' ? 'p2' : 'p1'];
-      yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}`; yourFeedback.classList.add('fade-in');
-      oppFeedback.textContent = `Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`; oppFeedback.classList.add('fade-in');
+      const otherId = playerId === 'p1' ? 'p2' : 'p1';
+      const resOp = msg.results[otherId];
+      if (resMe) yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}`; yourFeedback.classList.add('fade-in');
+      if (resOp) oppFeedback.textContent = `Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`; else oppFeedback.textContent = '';
       const meLife = msg.lives[playerId];
-      const opLife = msg.lives[playerId === 'p1' ? 'p2' : 'p1'];
-      lifeYou.style.width = `${meLife}%`;
-      lifeOpp.style.width = `${opLife}%`;
-      const dmgMe = msg.damage ? (msg.damage[playerId] || 0) : 0;
-      const dmgOp = msg.damage ? (msg.damage[playerId === 'p1' ? 'p2' : 'p1'] || 0) : 0;
-      if (dmgMe > 0) { lifeYou.classList.add('hit'); setTimeout(() => lifeYou.classList.remove('hit'), 500); }
-      if (dmgOp > 0) { lifeOpp.classList.add('hit'); setTimeout(() => lifeOpp.classList.remove('hit'), 500); }
+      const opLife = msg.lives[otherId];
+      if (hasSl) {
+        lifeYouBar.value = meLife;
+        lifeOppBar.value = opLife;
+      } else {
+        const ly = document.getElementById('lifeYou');
+        const lo = document.getElementById('lifeOpp');
+        if (ly) ly.style.width = `${meLife}%`;
+        if (lo) lo.style.width = `${opLife}%`;
+      }
       submit.disabled = true;
       aiAssistBtn.disabled = true;
       if (msg.results && prompts) {
         const items = [];
         const meId = playerId;
-        const opId = playerId === 'p1' ? 'p2' : 'p1';
+        const opId = otherId;
         items.push({ round: msg.round, playerId: meId, prompt: prompts[meId] || '', answer: yourAnswer.value.trim(), score: msg.results[meId]?.score || 0, feedback: msg.results[meId]?.feedback || '', corrections: msg.results[meId]?.corrections || null });
-        items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null });
+        if (msg.results[opId]) items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null });
         renderHistoryMerge(items);
       }
     }
@@ -196,26 +337,43 @@
     if (msg.type === 'game_over') {
       const win = msg.winner === playerId;
       info.textContent = win ? 'You win! 🎉' : 'You lost. 🥲';
+      toast(win ? '🏆 ¡Has ganado!' : '💀 Has perdido', win ? 'success' : 'error');
       submit.disabled = true;
     }
 
     if (msg.type === 'opponent_disconnected') {
       info.textContent = 'Opponent disconnected.';
+      toast('🔌 Oponente desconectado', 'warning');
       submit.disabled = true;
     }
 
     if (msg.type === 'cards_granted') {
       info.textContent = '¡Has recibido una carta!';
+      toast('🎁 ¡Has recibido una carta!', 'success');
     }
     if (msg.type === 'card_used') {
       if (msg.effect === 'heal_small') info.textContent = 'Usaste Cura (+10)';
+      if (msg.effect === 'shield_small') info.textContent = 'Usaste Escudo (+5)';
+      if (msg.effect === 'shield_medium') info.textContent = 'Usaste Escudo (+10)';
+      if (msg.effect === 'double_hit') info.textContent = 'Usaste Doble golpe (+50%)';
+      toast('Carta usada', 'primary');
+    }
+    if (msg.type === 'player_silenced') {
+      if (msg.playerId === playerId) info.textContent = 'Estás silenciado: no puedes usar cartas esta ronda.';
+      else info.textContent = 'Silenciaste al oponente esta ronda.';
+      toast('🔇 Silencio aplicado', 'warning');
+    }
+    if (msg.type === 'card_stolen') {
+      if (msg.to === playerId) info.textContent = 'Robaste una carta al oponente.';
+      if (msg.from === playerId) info.textContent = 'Te robaron una carta.';
+      toast('🫳 Robo de carta', 'warning');
     }
     if (msg.type === 'prompt_updated') {
       if (msg.playerId === playerId) { yourPrompt.textContent = msg.prompt; yourPrompt.classList.add('fade-in'); }
       else { oppPrompt.textContent = msg.prompt; oppPrompt.classList.add('fade-in'); }
     }
     if (msg.type === 'ai_assist_ready') {
-      if (msg.playerId === playerId) { aiAssistBtn.disabled = false; info.textContent = 'AI Assist listo para este turno.'; }
+      if (msg.playerId === playerId) { aiAssistBtn.disabled = false; info.textContent = 'AI Assist listo para este turno.'; toast('✨ AI Assist disponible', 'success'); }
     }
     if (msg.type === 'ai_answer') {
       if (msg.playerId === playerId) {
@@ -227,7 +385,7 @@
 
   createBtn.addEventListener('click', () => {
     const name = nameInput.value.trim() || 'Player';
-    const learningLanguage = langSelect.value;
+    learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
     send({ type: 'create_room', name, learningLanguage, nativeLanguage });
     status.textContent = 'Creating room...';
@@ -237,7 +395,7 @@
     const code = roomCodeInput.value.trim().toUpperCase();
     if (!code) { status.textContent = 'Enter a room code.'; return; }
     const name = nameInput.value.trim() || 'Player';
-    const learningLanguage = langSelect.value;
+    learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
     send({ type: 'join_room', roomCode: code, name, learningLanguage, nativeLanguage });
     status.textContent = 'Joining room...';
@@ -261,8 +419,21 @@
     send({ type: 'skip' });
   });
 
+  if (singleBtn) {
+    singleBtn.addEventListener('click', () => {
+      const name = nameInput.value.trim() || 'Player';
+      learningLanguage = langSelect.value;
+      nativeLanguage = nativeSelect.value;
+      const th = parseInt(spThresholdInput?.value || '70', 10) || 70;
+      targetThreshold = Math.max(40, Math.min(100, th));
+      send({ type: 'single_start', name, learningLanguage, nativeLanguage, threshold: targetThreshold });
+      status.textContent = 'Starting single player...';
+    });
+  }
+
   spinBtn.addEventListener('click', () => {
     spinBtn.disabled = true;
+    spinBtn.setAttribute('disabled','');
     send({ type: 'spin' });
   });
 
@@ -271,7 +442,17 @@
     const what = stage === 'subtopic' ? 'Subtema' : 'Tema';
     turnLabel.textContent = mine ? `Tu turno: elige ${what}` : `Turno del oponente: elige ${what}`;
     spinnerOverlay.style.display = 'flex';
-    spinBtn.disabled = !mine;
+    // Ensure wheel fits before first spin
+    ensureWheelSize();
+    if (hasWinwheel) buildWheel(); else updateWheelColors();
+    // Toggle disabled both as property and attribute (for custom elements)
+    if (mine) {
+      spinBtn.disabled = false;
+      spinBtn.removeAttribute('disabled');
+    } else {
+      spinBtn.disabled = true;
+      spinBtn.setAttribute('disabled', '');
+    }
   }
 
   function renderHistory(list) {
@@ -290,8 +471,14 @@
     if (opp.length) oppHistory.innerHTML = toHistoryHTML(opp[0]) + oppHistory.innerHTML;
   }
 
-  function renderCards(mine, opp) {
-    yourCards.innerHTML = (mine || []).map((c) => `<button class="card-btn" data-id="${c.id}">${escapeHTML(c.label)}</button>`).join('');
+  function toast(message, variant) {
+    if (window.Toast && typeof window.Toast.show === 'function') {
+      window.Toast.show(message, { variant });
+    }
+  }
+
+  function renderCards(mine, opp, meSilenced) {
+    yourCards.innerHTML = (mine || []).map((c) => `<button class="card-btn" data-id="${c.id}" ${meSilenced ? "disabled" : ""}>${escapeHTML(c.label)}</button>`).join('');
     oppCards.innerHTML = (opp || []).map((c) => `<span class="card-btn" disabled>${escapeHTML(c.label)}</span>`).join('');
     yourCards.querySelectorAll('button.card-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -299,6 +486,21 @@
         send({ type: 'use_card', cardId });
       });
     });
+  }
+
+
+  function cardEmoji(type) {
+    switch (type) {
+      case "heal_small": return "❤️";
+      case "shield_small": return "🛡️";
+      case "shield_medium": return "🛡️";
+      case "double_hit": return "⚡";
+      case "silence": return "🔇";
+      case "steal": return "🫳";
+      case "reroll_prompt": return "🔀";
+      case "ai_assist": return "✨";
+      default: return "🃏";
+    }
   }
 
   function toHistoryHTML(x) {
@@ -325,11 +527,87 @@
       </div>`).join('');
   }
 
+  function buildWheel() {
+    // Ensure current sizing before building the canvas wheel
+    ensureWheelSize();
+    if (!wheelCanvas || !Array.isArray(topics) || topics.length === 0 || typeof Winwheel === 'undefined') return;
+    const size = wheelCanvas.width || 320;
+    const fontSize = size <= 280 ? 11 : size <= 320 ? 13 : size <= 360 ? 14 : 16;
+    const segs = topics.map((t, i) => ({
+      fillStyle: COLORS[i % COLORS.length],
+      text: localizeTopic(t.key),
+      textFillStyle: '#e5e7eb',
+      textFontSize: fontSize,
+    }));
+    try {
+      winWheel = new Winwheel({
+        canvasId: 'wheelCanvas',
+        numSegments: segs.length,
+        segments: segs,
+        outerRadius: Math.floor((wheelCanvas.width || 420) / 2) - 20,
+        innerRadius: 12,
+        textAlignment: 'outer',
+        pointerAngle: 0,
+        animation: { type: 'spinToStop', duration: 2, spins: 5 },
+      });
+    } catch {}
+  }
+
+  function ensureWheelSize() {
+    if (!wheelCanvas) return;
+    const vw = Math.max(320, window.innerWidth || 800);
+    const vh = Math.max(320, window.innerHeight || 600);
+    // Mobile-friendly sizing: a bit smaller to leave room for controls
+    const size = Math.max(220, Math.min(360, Math.floor(Math.min(vw * 0.72, vh * 0.44))));
+    if (wheelCanvas.width !== size || wheelCanvas.height !== size) {
+      wheelCanvas.width = size;
+      wheelCanvas.height = size;
+    }
+    if (wheel) { wheel.style.width = size + 'px'; wheel.style.height = size + 'px'; }
+  }
+
+  window.addEventListener('resize', () => { ensureWheelSize(); if (hasWinwheel) buildWheel(); else updateWheelColors(); });
+  window.addEventListener('resize', applyMobileView);
+
+  function applyMobileView() {
+    const rightPanel = document.getElementById('right');
+    const leftPanel = document.getElementById('left');
+    const isMobile = window.innerWidth <= 700;
+    if (gameMode === 'single') {
+      if (rightPanel) rightPanel.style.display = 'none';
+      if (toggleViewBtn) toggleViewBtn.style.display = 'none';
+      if (leftPanel) leftPanel.style.display = '';
+      return;
+    }
+    // Duo mode
+    if (!isMobile) {
+      if (leftPanel) leftPanel.style.display = '';
+      if (rightPanel) rightPanel.style.display = '';
+      if (toggleViewBtn) toggleViewBtn.style.display = 'none';
+    } else {
+      if (toggleViewBtn) {
+        toggleViewBtn.style.display = '';
+        toggleViewBtn.textContent = mobileView === 'you' ? 'Ver oponente' : 'Ver tu vista';
+      }
+      if (leftPanel) leftPanel.style.display = (mobileView === 'you') ? '' : 'none';
+      if (rightPanel) rightPanel.style.display = (mobileView === 'opponent') ? '' : 'none';
+    }
+  }
+
+  if (toggleViewBtn) {
+    toggleViewBtn.addEventListener('click', () => {
+      mobileView = mobileView === 'you' ? 'opponent' : 'you';
+      applyMobileView();
+    });
+  }
+
   function updateWheelColors() {
-    if (!Array.isArray(topics) || topics.length === 0) return;
+    // Ensure fallback CSS wheel is sized correctly as well
+    ensureWheelSize();
+    if (!wheel || !Array.isArray(topics) || topics.length === 0) return;
     const n = topics.length;
     const angle = 360 / n;
-    const segments = topics.map((_, i) => {
+    const segments = topics.map((t, i) => {
       const a0 = i * angle;
       const a1 = (i + 1) * angle;
       const color = COLORS[i % COLORS.length];

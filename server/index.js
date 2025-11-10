@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { createEvaluator } from './lib/evaluator.js';
-import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise } from './lib/exercise.js';
+import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise, getHints } from './lib/exercise.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +22,11 @@ const log = (...args) => { if (DEBUG) console.log(new Date().toISOString(), ...a
 // --- Card system ---
 const CARD_TYPES = [
   { type: 'heal_small', label: 'Cura (+10)', description: 'Cura ligeramente tu vida.', useDuring: 'any' },
+  { type: 'shield_small', label: 'Escudo (+5)', description: 'Reduce 5 de daño recibido esta ronda.', useDuring: 'playing' },
+  { type: 'shield_medium', label: 'Escudo (+10)', description: 'Reduce 10 de daño recibido esta ronda.', useDuring: 'playing' },
+  { type: 'double_hit', label: 'Doble golpe', description: 'Aumenta tu daño esta ronda (+50%).', useDuring: 'playing' },
+  { type: 'silence', label: 'Silencio', description: 'El rival no puede usar cartas esta ronda.', useDuring: 'playing' },
+  { type: 'steal', label: 'Robo', description: 'Roba 1 carta aleatoria al rival.', useDuring: 'playing' },
   { type: 'reroll_prompt', label: 'Cambiar pregunta', description: 'Cambia tu enunciado actual.', useDuring: 'playing' },
   { type: 'ai_assist', label: 'Respuesta IA', description: 'Habilita ayuda IA para este turno.', useDuring: 'playing' },
 ];
@@ -141,6 +146,8 @@ function roomSnapshot(room) {
     roomCode: room.code,
     round: room.round,
     status: room.status,
+    mode: room.mode || 'duo',
+    threshold: room.threshold || null,
     turn: room.turn || null,
     lastCategory: room.lastCategory || null,
     lastSubtopic: room.lastSubtopic || null,
@@ -154,9 +161,11 @@ function roomSnapshot(room) {
       life: p.life,
       cards: p.cards || [],
       aiAssistReady: !!p.aiAssistReady,
+      silenced: !!(room.buffs && room.buffs[p.id]?.silenced),
       connected: p.ws?.readyState === 1,
     })),
     prompts: room.prompts,
+    hints: room.hints || {},
     lastResults: room.lastResults || null,
     history: (room.history || []).slice(-50),
     topics: room.stage === 'subtopic' && room.lastCategory ? getSubtopics(room.lastCategory) : TOPICS,
@@ -173,6 +182,13 @@ function startRound(room, categoryKey, subtopicKey) {
   room.lastSubtopic = subtopicKey || room.lastSubtopic || null;
   room.stage = 'topic';
 
+  // Reset round buffs and one-time flags
+  room.buffs = room.buffs || {};
+  room.buffs = { p1: {}, p2: {} };
+  for (const pid of Object.keys(room.players)) {
+    room.players[pid].aiAssistReady = false;
+  }
+
   // Every 3 rounds, grant a random card to each player
   if (room.round % 3 === 0) {
     for (const pid of Object.keys(room.players)) {
@@ -185,12 +201,17 @@ function startRound(room, categoryKey, subtopicKey) {
   }
 
   const prompts = {};
+  const hints = {};
   for (const pid of Object.keys(room.players)) {
     const player = room.players[pid];
     // Generate per selected category and target language
     prompts[pid] = null; // placeholder, fill asynchronously
+    try {
+      hints[pid] = getHints(room.lastCategory, room.lastSubtopic, player.nativeLanguage);
+    } catch { hints[pid] = null; }
   }
   room.prompts = prompts;
+  room.hints = hints;
   broadcastRoom(room, { type: 'round_start', round: room.round, category: room.lastCategory, subtopic: room.lastSubtopic });
   // Generate prompts asynchronously and then broadcast when ready,
   // with a safety fallback to avoid indefinite waiting.
@@ -203,7 +224,7 @@ function startRound(room, categoryKey, subtopicKey) {
       room.prompts[pid] = prompt;
     }
     sent = true;
-    broadcastRoom(room, { type: 'prompts_ready', round: room.round, prompts: room.prompts, category: room.lastCategory, subtopic: room.lastSubtopic });
+    broadcastRoom(room, { type: 'prompts_ready', round: room.round, prompts: room.prompts, hints: room.hints || {}, category: room.lastCategory, subtopic: room.lastSubtopic });
     broadcastRoom(room, roomSnapshot(room));
     log('[round] prompts_ready', { room: room.code, round: room.round });
     if (hasBot(room)) simulateBotAnswer(room);
@@ -242,25 +263,40 @@ function startRound(room, categoryKey, subtopicKey) {
 
 async function maybeResolveRound(room) {
   const playerIds = Object.keys(room.players);
-  // Only resolve rounds when exactly two players are present
-  if (playerIds.length !== 2) return;
-  if (!playerIds.every((id) => room.answers[id] !== undefined)) return; // wait until both answered
+  const single = room.mode === 'single';
+  if (!single) {
+    // Only resolve rounds when exactly two players are present
+    if (playerIds.length !== 2) return;
+    if (!playerIds.every((id) => room.answers[id] !== undefined)) return; // wait until both answered
+  } else {
+    // Single-player: resolve as soon as P1 answered
+    if (!room.answers.p1) return;
+  }
 
   // Notify clients that evaluation is starting
   broadcastRoom(room, { type: 'evaluating', round: room.round });
 
   const results = {};
-  // Evaluate both answers
-  for (const pid of playerIds) {
+  // Evaluate answers
+  if (!single) {
+    for (const pid of playerIds) {
+      const player = room.players[pid];
+      const answer = room.answers[pid] || '';
+      const prompt = room.prompts[pid] || '';
+      try {
+        const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage });
+        results[pid] = ev;
+      } catch (e) {
+        results[pid] = { score: 0, feedback: 'Evaluation failed', corrections: null, raw: String(e) };
+      }
+    }
+  } else {
+    const pid = 'p1';
     const player = room.players[pid];
     const answer = room.answers[pid] || '';
     const prompt = room.prompts[pid] || '';
     try {
-      const ev = await evaluator.evaluate({
-        prompt,
-        answer,
-        targetLanguage: player.learningLanguage,
-      });
+      const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage });
       results[pid] = ev;
     } catch (e) {
       results[pid] = { score: 0, feedback: 'Evaluation failed', corrections: null, raw: String(e) };
@@ -268,19 +304,35 @@ async function maybeResolveRound(room) {
   }
 
   // Apply damage: each player's score damages the opponent
-  const [p1, p2] = playerIds;
-  const damageFromP1 = Math.max(0, Math.round((results[p1].score || 0) / 5)); // 0-20 damage
-  const damageFromP2 = Math.max(0, Math.round((results[p2].score || 0) / 5));
-
-  room.players[p2].life = Math.max(0, room.players[p2].life - damageFromP1);
-  room.players[p1].life = Math.max(0, room.players[p1].life - damageFromP2);
-
-  const over = room.players[p1].life <= 0 || room.players[p2].life <= 0;
-  room.lastResults = { results, damage: { [p1]: damageFromP2, [p2]: damageFromP1 } };
+  let over = false;
+  if (!single) {
+    const [p1, p2] = playerIds;
+    const base1 = Math.max(0, Math.round((results[p1].score || 0) / 5));
+    const base2 = Math.max(0, Math.round((results[p2].score || 0) / 5));
+    const b1 = (room.buffs && room.buffs[p1]) || {};
+    const b2 = (room.buffs && room.buffs[p2]) || {};
+    const out1 = Math.round(base1 * (1 + (b1.double || 0)));
+    const out2 = Math.round(base2 * (1 + (b2.double || 0)));
+    const damageFromP1 = Math.max(0, out1 - (b2.shield || 0));
+    const damageFromP2 = Math.max(0, out2 - (b1.shield || 0));
+    room.players[p2].life = Math.max(0, room.players[p2].life - damageFromP1);
+    room.players[p1].life = Math.max(0, room.players[p1].life - damageFromP2);
+    over = room.players[p1].life <= 0 || room.players[p2].life <= 0;
+    room.lastResults = { results, damage: { [p1]: damageFromP2, [p2]: damageFromP1 } };
+  } else {
+    // Single: lose 10 HP if score < threshold
+    const threshold = Number(room.threshold) || 70;
+    const dmg = (results.p1?.score || 0) < threshold ? 10 : 0;
+    const before = room.players.p1.life;
+    room.players.p1.life = Math.max(0, before - dmg);
+    over = room.players.p1.life <= 0;
+    room.lastResults = { results, damage: { p1: dmg } };
+  }
 
   // Append to room history
   room.history = room.history || [];
   for (const pid of playerIds) {
+    if (single && pid !== 'p1') continue;
     room.history.push({
       round: room.round,
       playerId: pid,
@@ -293,16 +345,19 @@ async function maybeResolveRound(room) {
     });
   }
 
-  broadcastRoom(room, { type: 'round_result', round: room.round, ...room.lastResults, lives: {
-    [p1]: room.players[p1].life,
-    [p2]: room.players[p2].life,
-  }});
+  const livesPayload = !single
+    ? { p1: room.players.p1.life, p2: room.players.p2.life }
+    : { p1: room.players.p1.life };
+  broadcastRoom(room, { type: 'round_result', round: room.round, ...room.lastResults, lives: livesPayload });
   broadcastRoom(room, roomSnapshot(room));
 
   if (over) {
-    const winner = room.players[p1].life > 0 ? p1 : room.players[p2].life > 0 ? p2 : null;
+    const winner = !single
+      ? (room.players.p1.life > 0 ? 'p1' : room.players.p2.life > 0 ? 'p2' : null)
+      : null;
     room.status = 'finished';
-    broadcastRoom(room, { type: 'game_over', winner, lives: { [p1]: room.players[p1].life, [p2]: room.players[p2].life } });
+    const lives = !single ? { p1: room.players.p1.life, p2: room.players.p2.life } : { p1: room.players.p1.life };
+    broadcastRoom(room, { type: 'game_over', winner, lives });
     return;
   }
 
@@ -316,7 +371,7 @@ function endCooldown(room) {
   room.cooldownEndsAt = null;
   room.skip = {};
   if (room.cooldownTimer) { clearTimeout(room.cooldownTimer); room.cooldownTimer = null; }
-  room.turn = room.turn === 'p1' ? 'p2' : 'p1';
+  room.turn = room.mode === 'single' ? 'p1' : (room.turn === 'p1' ? 'p2' : 'p1');
   room.stage = 'topic';
   broadcastRoom(room, { type: 'turn', playerId: room.turn, topics: TOPICS, stage: 'topic' });
   broadcastRoom(room, roomSnapshot(room));
@@ -413,6 +468,40 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'single_start') {
+      log('[ws] single_start request');
+      // Create new single-player room
+      const code = (() => { let c; do { c = genRoomCode(); } while (rooms.has(c)); return c; })();
+      const pId = 'p1';
+      player.id = pId;
+      player.name = msg.name?.slice(0, 20) || 'Player';
+      player.learningLanguage = msg.learningLanguage || 'English';
+      player.nativeLanguage = msg.nativeLanguage || (player.learningLanguage === 'English' ? 'Spanish' : 'English');
+      player.life = 100;
+
+      room = {
+        code,
+        mode: 'single',
+        threshold: Math.max(40, Math.min(100, Number(msg.threshold) || 70)),
+        players: { [pId]: player },
+        status: 'waiting_spin',
+        round: 0,
+        prompts: {},
+        answers: {},
+        hints: {},
+        turn: 'p1',
+        lastCategory: null,
+        lastSubtopic: null,
+        history: [],
+        stage: 'topic',
+      };
+      rooms.set(code, room);
+      send({ type: 'room_created', roomCode: code, playerId: pId });
+      broadcastRoom(room, { type: 'turn', playerId: room.turn, topics: TOPICS, stage: 'topic' });
+      broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+
     if (msg.type === 'answer' && room && player.id) {
       log('[ws] answer', { room: room.code, playerId: player.id, len: (msg.text || '').length });
       const text = (msg.text || '').slice(0, 2000);
@@ -426,6 +515,13 @@ wss.on('connection', (ws) => {
     // Use a card
     if (msg.type === 'use_card' && room && player.id) {
       const pid = player.id;
+      // If silenced, cannot use cards this round
+      const buffs = room.buffs || { p1: {}, p2: {} };
+      const myBuff = buffs[pid] || {};
+      if (myBuff.silenced) {
+        log('[cards] blocked_by_silence', { room: room.code, playerId: pid });
+        return;
+      }
       room.players[pid].cards = room.players[pid].cards || [];
       const cards = room.players[pid].cards;
       const idx = cards.findIndex((c) => c.id === msg.cardId);
@@ -440,6 +536,44 @@ wss.on('connection', (ws) => {
         room.players[pid].life = Math.min(100, before + 10);
         log('[cards] heal_small', { room: room.code, playerId: pid, from: before, to: room.players[pid].life });
         broadcastRoom(room, { type: 'card_used', playerId: pid, effect: 'heal_small', life: room.players[pid].life });
+      } else if (card.type === 'shield_small') {
+        const buf = buffs[pid] = buffs[pid] || {};
+        buf.shield = (buf.shield || 0) + 5;
+        room.buffs = { ...buffs };
+        log('[cards] shield_small', { room: room.code, playerId: pid, total: buf.shield });
+        broadcastRoom(room, { type: 'card_used', playerId: pid, effect: 'shield_small', value: 5, total: buf.shield });
+      } else if (card.type === 'shield_medium') {
+        const buf = buffs[pid] = buffs[pid] || {};
+        buf.shield = (buf.shield || 0) + 10;
+        room.buffs = { ...buffs };
+        log('[cards] shield_medium', { room: room.code, playerId: pid, total: buf.shield });
+        broadcastRoom(room, { type: 'card_used', playerId: pid, effect: 'shield_medium', value: 10, total: buf.shield });
+      } else if (card.type === 'double_hit') {
+        const buf = buffs[pid] = buffs[pid] || {};
+        buf.double = Math.min(0.5, (buf.double || 0) + 0.5); // +50% once
+        room.buffs = { ...buffs };
+        log('[cards] double_hit', { room: room.code, playerId: pid, mult: 1 + (buf.double || 0) });
+        broadcastRoom(room, { type: 'card_used', playerId: pid, effect: 'double_hit' });
+      } else if (card.type === 'silence') {
+        const otherId = pid === 'p1' ? 'p2' : 'p1';
+        if (!room.players[otherId]) return; // ignore in single-player
+        const obuf = buffs[otherId] = buffs[otherId] || {};
+        obuf.silenced = true;
+        room.buffs = { ...buffs };
+        log('[cards] silence', { room: room.code, from: pid, to: otherId });
+        broadcastRoom(room, { type: 'player_silenced', playerId: otherId });
+      } else if (card.type === 'steal') {
+        const otherId = pid === 'p1' ? 'p2' : 'p1';
+        if (!room.players[otherId]) return; // ignore in single-player
+        const ocards = room.players[otherId].cards || [];
+        if (ocards.length > 0) {
+          const sidx = Math.floor(Math.random() * ocards.length);
+          const stolen = ocards.splice(sidx, 1)[0];
+          cards.push(stolen);
+          room.players[otherId].cards = ocards;
+          log('[cards] steal', { room: room.code, from: otherId, to: pid, type: stolen.type });
+          broadcastRoom(room, { type: 'card_stolen', from: otherId, to: pid, type: stolen.type });
+        }
       } else if (card.type === 'reroll_prompt') {
         const targetLang = room.players[pid].learningLanguage || 'English';
         log('[cards] reroll_prompt', { room: room.code, playerId: pid });
@@ -546,6 +680,24 @@ wss.on('connection', (ws) => {
       if (room) send(roomSnapshot(room));
       return;
     }
+
+    // Explain selection (dictionary) using LLM with context, reply in player's native language
+    if (msg.type === 'explain_selection' && room && player.id) {
+      const pid = player.id;
+      const nativeLang = room.players[pid]?.nativeLanguage || 'Spanish';
+      const targetLang = room.players[pid]?.learningLanguage || 'English';
+      const text = String(msg.text || '').slice(0, 200);
+      const context = String(msg.context || '').slice(0, 2000);
+      log('[dict] explain_selection', { room: room.code, playerId: pid, text });
+      try {
+        const explanation = await generateExplanation({ text, context, nativeLanguage: nativeLang, targetLanguage: targetLang });
+        send({ type: 'explain_result', text, explanation });
+      } catch (e) {
+        const fallback = mockExplain({ text, context, nativeLanguage: nativeLang, targetLanguage: targetLang });
+        send({ type: 'explain_result', text, explanation: fallback });
+      }
+      return;
+    }
   });
 
   ws.on('close', () => {
@@ -613,3 +765,42 @@ function mockAIAnswer({ prompt, targetLanguage }) {
     : 'B: Thanks for the context. I suggest clarifying the main points, proposing next steps, and confirming timing. Does that work for you?';
   return text;
 }
+
+// --- Dictionary / Explanation (server-side) ---
+async function generateExplanation({ text, context, nativeLanguage, targetLanguage }) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
+  const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3.1:free';
+  const system = 'You are a concise, context-aware explainer. Return a clear explanation IN THE USER\'S NATIVE LANGUAGE. Also include: 2–4 synonyms IN THE LEARNING LANGUAGE, and ONE short usage example sentence IN THE LEARNING LANGUAGE. Keep it under 6 lines.';
+  const user = `Native language: ${nativeLanguage}\nLearning language: ${targetLanguage}\nSelected text: ${text}\nFull context: ${context}\nExplain the selected text considering the context.\n- First: meaning in context in ${nativeLanguage} (and translation if helpful).\n- Then: 2–4 synonyms in ${targetLanguage}.\n- Then: one short usage example in ${targetLanguage}.`;
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 8000);
+  const res = await withTimeout(_fetch2('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': process.env.OPENROUTER_REFERRER || 'http://localhost',
+      'X-Title': 'Language Duel Dictionary',
+    },
+    body: JSON.stringify({ model, temperature: 0.3, messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ] }),
+    signal: controller.signal,
+  }), timeoutMs, 'Explain');
+  if (!res.ok) {
+    const textRes = await res.text();
+    throw new Error(`Explain error ${res.status}: ${textRes}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content?.trim() || '';
+}
+
+function mockExplain({ text, context, nativeLanguage, targetLanguage }) {
+  if ((nativeLanguage || '').toLowerCase().startsWith('span')) {
+    return `Explicación de «${text}»: término en contexto.\nSinónimos (${targetLanguage}): —.\nUso (${targetLanguage}): …\n(Pista generada sin IA)`;
+  }
+  return `Explanation for “${text}”: context term.\nSynonyms (${targetLanguage}): —.\nUsage (${targetLanguage}): …\n(Non-AI fallback)`;
+}
+    

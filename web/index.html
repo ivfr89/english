@@ -5,23 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Language Duel</title>
     <link rel="stylesheet" href="styles.css" />
+    <!-- Local vendorized UI shims (no CDN needed) -->
+    <link rel="stylesheet" href="vendor/sl-shim.css" />
+    <script defer src="vendor/sl-shim.js"></script>
+    <script defer src="vendor/winwheel-shim.js"></script>
+    <link rel="stylesheet" href="vendor/toast.css" />
+    <script defer src="vendor/toast.js"></script>
   </head>
   <body>
     <div id="spinnerOverlay" class="spinner-overlay" style="display:none">
-      <div class="spinner-card">
+      <sl-card class="spinner-card">
         <div class="spinner-header">
           <span id="turnLabel">Turno: -</span>
-          <button id="spinBtn" disabled>Girar</button>
+          <sl-button id="spinBtn" variant="primary" disabled>Girar</sl-button>
         </div>
         <div class="wheel-wrap">
-          <div id="wheel" class="wheel"></div>
+          <canvas id="wheelCanvas" width="420" height="420"></canvas>
+          <div id="wheel" class="wheel" style="display:none"></div>
           <div class="pointer">▼</div>
         </div>
         <div id="topicLegend" class="legend"></div>
-      </div>
+      </sl-card>
     </div>
     <div id="overlay" class="overlay">
-      <div class="card">
+      <sl-card class="card">
         <h1>Language Duel</h1>
         <div class="row">
           <label>Name</label>
@@ -41,27 +48,36 @@
             <option>English</option>
           </select>
         </div>
+        <div class="row">
+          <label>Modo</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <sl-button id="singlePlayer" variant="neutral">Single Player</sl-button>
+            <input id="spThreshold" type="number" min="40" max="100" step="5" value="70" style="width:100px" title="Puntuación objetivo" />
+          </div>
+        </div>
         <div class="row split">
-          <button id="createRoom">Create Room</button>
+          <sl-button id="createRoom" variant="success">Create Room</sl-button>
           <span>or</span>
           <input id="roomCode" placeholder="Room code" maxlength="6" />
-          <button id="joinRoom">Join</button>
+          <sl-button id="joinRoom" variant="primary">Join</sl-button>
         </div>
         <p id="status" class="status"></p>
-      </div>
+      </sl-card>
     </div>
 
     <header>
       <div class="room-info">
         <span id="roomLabel">Room: -</span>
         <span id="roundLabel">Round: 0</span>
+        <button id="toggleViewBtn" class="mobile-only" style="display:none">Ver oponente</button>
       </div>
     </header>
 
     <main class="arena">
-      <section class="panel" id="left">
+      <sl-card class="panel" id="left">
         <h2>You</h2>
-        <div class="life"><div id="lifeYou" class="bar" style="width:100%"></div></div>
+        <sl-progress-bar id="lifeYouBar" max="100" value="100"></sl-progress-bar>
+        <div class="life" id="lifeYouFallback" style="display:none"><div id="lifeYou" class="bar" style="width:100%"></div></div>
         <div class="cards">
           <h4>Cartas</h4>
           <div id="yourCards" class="card-list"></div>
@@ -69,11 +85,17 @@
         <div class="prompt">
           <h3>Your Prompt</h3>
           <p id="yourPrompt">Waiting...</p>
+          <p id="yourHint" class="hint" style="display:none"></p>
+          <div id="dictPopup" class="dict-popup" style="display:none">
+            <button id="dictClose" class="dict-close" title="Cerrar">×</button>
+            <span id="dictLoader" class="loader" style="display:none"></span>
+            <div id="dictContent" class="dict-content"></div>
+          </div>
         </div>
         <textarea id="yourAnswer" rows="6" placeholder="Write your answer..."></textarea>
         <div class="row split">
-          <button id="submit">Submit</button>
-          <button id="aiAssistBtn" disabled>AI Assist</button>
+          <sl-button id="submit" variant="primary">Submit</sl-button>
+          <sl-button id="aiAssistBtn" variant="neutral" disabled>AI Assist</sl-button>
         </div>
         <div class="feedback">
           <h4>Feedback</h4>
@@ -83,11 +105,12 @@
           <h4>Historial</h4>
           <div id="yourHistory" class="history-list"></div>
         </div>
-      </section>
+      </sl-card>
 
-      <section class="panel alt" id="right">
+      <sl-card class="panel alt" id="right">
         <h2>Opponent</h2>
-        <div class="life"><div id="lifeOpp" class="bar" style="width:100%"></div></div>
+        <sl-progress-bar id="lifeOppBar" max="100" value="100"></sl-progress-bar>
+        <div class="life" id="lifeOppFallback" style="display:none"><div id="lifeOpp" class="bar" style="width:100%"></div></div>
         <div class="cards">
           <h4>Cartas Oponente</h4>
           <div id="oppCards" class="card-list"></div>
@@ -95,6 +118,7 @@
         <div class="prompt">
           <h3>Opponent Prompt</h3>
           <p id="oppPrompt">Waiting...</p>
+          <p id="oppHint" class="hint" style="display:none"></p>
         </div>
         <div class="feedback">
           <h4>Opponent Feedback</h4>
@@ -104,17 +128,17 @@
           <h4>Historial Oponente</h4>
           <div id="oppHistory" class="history-list"></div>
         </div>
-      </section>
+      </sl-card>
     </main>
 
     <footer>
       <span id="info"></span>
       <div id="cooldown" class="cooldown" style="display:none">
         <span id="cooldownLabel">Tiempo de repaso: 30s</span>
-        <button id="skipBtn">Saltar</button>
+        <sl-button id="skipBtn" variant="warning">Saltar</sl-button>
       </div>
     </footer>
 
-    <script src="main.js"></script>
+    <script defer src="main.js"></script>
   </body>
   </html>

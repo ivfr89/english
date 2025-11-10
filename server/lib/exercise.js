@@ -75,6 +75,44 @@ export function getSubtopics(topicKey) {
   return t?.subs || [];
 }
 
+export function getHints(topicKey, subtopicKey, nativeLanguage = 'Spanish') {
+  // Lightweight, generic hints per topic; localized English/Spanish
+  const H = {
+    'work-conversation': {
+      English: [
+        'Tip: Be clear and propose a plan.',
+        'Add a polite tone and next steps.',
+      ],
+      Spanish: [
+        'Consejo: Sé claro y propone un plan.',
+        'Usa un tono cordial y próximos pasos.',
+      ],
+    },
+    'customer-support': {
+      English: [ 'Tip: Empathize and offer a solution.', 'Ask a clarifying question if needed.' ],
+      Spanish: [ 'Consejo: Empatiza y propone una solución.', 'Haz una pregunta aclaratoria si hace falta.' ],
+    },
+    'travel-conversation': {
+      English: [ 'Tip: Be polite and specific.', 'Mention time/place details.' ],
+      Spanish: [ 'Consejo: Sé educado y específico.', 'Menciona detalles de tiempo/lugar.' ],
+    },
+    'friend-chat': {
+      English: [ 'Tip: Keep a friendly tone.', 'Confirm availability and suggest an option.' ],
+      Spanish: [ 'Consejo: Mantén un tono amistoso.', 'Confirma disponibilidad y sugiere una opción.' ],
+    },
+    'interview': {
+      English: [ 'Tip: Be concise and concrete.', 'Mention 1 example and result.' ],
+      Spanish: [ 'Consejo: Sé conciso y concreto.', 'Menciona 1 ejemplo y resultado.' ],
+    },
+    'negotiation': {
+      English: [ 'Tip: Offer trade-offs.', 'Be clear about constraints.' ],
+      Spanish: [ 'Consejo: Ofrece compensaciones.', 'Sé claro con las limitaciones.' ],
+    },
+  };
+  const arr = (H[topicKey]?.[nativeLanguage]) || (H[topicKey]?.English) || [];
+  return arr.join(' ');
+}
+
 async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, difficulty = 'medium' }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');

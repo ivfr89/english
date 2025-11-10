@@ -1,0 +1,22 @@
+/* Minimal styles to mimic Shoelace look without CDN */
+:root {
+  --sl-color-primary:#22d3ee; --sl-color-success:#34d399; --sl-color-warning:#f59e0b; --sl-color-neutral:#94a3b8;
+  --sl-bg:#0b1220; --sl-panel:#0a0f1c; --sl-text:#e5e7eb; --sl-border:#1f2937;
+}
+
+sl-card { display:block; background: var(--sl-panel); border:1px solid var(--sl-border); border-radius:12px; padding:14px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+sl-button { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; user-select:none; color:#000; font-weight:700; background: var(--sl-color-primary); }
+sl-button[variant="primary"]{ background: var(--sl-color-primary); color:#000; }
+sl-button[variant="success"]{ background: var(--sl-color-success); color:#000; }
+sl-button[variant="warning"]{ background: var(--sl-color-warning); color:#000; }
+sl-button[variant="neutral"]{ background: var(--sl-color-neutral); color:#000; }
+sl-button[disabled]{ opacity:.6; cursor:not-allowed; }
+sl-button[pill]{ border-radius:9999px; }
+sl-button[size="small"]{ padding:4px 8px; font-size:12px; }
+
+/* Progress bar */
+sl-progress-bar{ display:block; height:12px; background:#1f2937; border-radius:6px; overflow:hidden; border:1px solid var(--sl-border); }
+sl-progress-bar .bar{ height:100%; width:0%; background: linear-gradient(90deg, #22d3ee, #f472b6); transition: width .25s ease; }
+
+/* General text colors */
+body { color: var(--sl-text); }

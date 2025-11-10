@@ -1,0 +1,9 @@
+.toast-root { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+.toast { min-width: 200px; max-width: 360px; padding: 10px 12px; border-radius: 8px; border: 1px solid #1f2937; background: #0b1220; color: #e5e7eb; box-shadow: 0 8px 24px rgba(0,0,0,.35); pointer-events: auto; animation: toastIn .25s ease-out; font-size: 14px; }
+.toast.primary { border-color: #22d3ee; }
+.toast.success { border-color: #34d399; }
+.toast.warning { border-color: #f59e0b; }
+.toast.error { border-color: #f87171; }
+.toast .title { font-weight: 700; margin-bottom: 4px; }
+.toast .close { float: right; cursor: pointer; opacity: .7; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
