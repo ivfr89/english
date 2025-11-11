@@ -41,6 +41,10 @@ export function createStore(databaseUrl) {
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_hist_room_player ON history(room_code, player_id, round);
+      DO $$ BEGIN
+        ALTER TABLE history ADD COLUMN IF NOT EXISTS user_id TEXT;
+      EXCEPTION WHEN others THEN NULL; END $$;
+      CREATE INDEX IF NOT EXISTS idx_hist_user ON history(user_id, created_at);
 
       CREATE TABLE IF NOT EXISTS playground_logs (
         id TEXT PRIMARY KEY,
@@ -55,6 +59,10 @@ export function createStore(databaseUrl) {
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_pg_room_player ON playground_logs(room_code, player_id, created_at);
+      DO $$ BEGIN
+        ALTER TABLE playground_logs ADD COLUMN IF NOT EXISTS user_id TEXT;
+      EXCEPTION WHEN others THEN NULL; END $$;
+      CREATE INDEX IF NOT EXISTS idx_pg_user ON playground_logs(user_id, created_at);
 
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -107,13 +115,13 @@ export function historyStore(databaseUrl) {
   const pool = createPool(databaseUrl);
   function makeId() { return crypto.randomUUID ? crypto.randomUUID() : ('h_' + Math.random().toString(36).slice(2, 10)); }
   async function addHistoryBulk(items) {
-    const text = `INSERT INTO history (id, room_code, player_id, round, prompt, answer, score, feedback, corrections, language)
-                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`;
+    const text = `INSERT INTO history (id, room_code, player_id, user_id, round, prompt, answer, score, feedback, corrections, language)
+                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       for (const it of items) {
-        await client.query(text, [makeId(), it.roomCode, it.playerId, it.round, it.prompt, it.answer, it.score, it.feedback, it.corrections || null, it.language || null]);
+        await client.query(text, [makeId(), it.roomCode, it.playerId, it.userId || null, it.round, it.prompt, it.answer, it.score, it.feedback, it.corrections || null, it.language || null]);
       }
       await client.query('COMMIT');
     } catch (e) {
@@ -121,8 +129,13 @@ export function historyStore(databaseUrl) {
       throw e;
     } finally { client.release(); }
   }
-  async function listRecent(roomCode, playerId, limit = 20) {
-    const res = await pool.query(`SELECT round, prompt, answer, score, feedback, corrections, language, created_at AS "createdAt" FROM history WHERE room_code=$1 AND player_id=$2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+  async function listRecent({ roomCode, playerId, userId, limit = 20 }) {
+    let res;
+    if (userId) {
+      res = await pool.query(`SELECT round, prompt, answer, score, feedback, corrections, language, created_at AS "createdAt" FROM history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+    } else {
+      res = await pool.query(`SELECT round, prompt, answer, score, feedback, corrections, language, created_at AS "createdAt" FROM history WHERE room_code=$1 AND player_id=$2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+    }
     return res.rows || [];
   }
   return { addHistoryBulk, listRecent };
@@ -132,14 +145,14 @@ export function playgroundStore(databaseUrl) {
   if (!databaseUrl) return null;
   const pool = createPool(databaseUrl);
   function makeId() { return crypto.randomUUID ? crypto.randomUUID() : ('pg_' + Math.random().toString(36).slice(2, 10)); }
-  async function logResults(roomCode, playerId, items) {
-    const text = `INSERT INTO playground_logs (id, room_code, player_id, kind, prompt, answer, score, feedback, corrections)
-                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`;
+  async function logResults(roomCode, playerId, userId, items) {
+    const text = `INSERT INTO playground_logs (id, room_code, player_id, user_id, kind, prompt, answer, score, feedback, corrections)
+                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       for (const it of items) {
-        await client.query(text, [makeId(), roomCode, playerId, it.kind || null, it.prompt || '', it.answer || '', it.score || 0, it.feedback || '', it.corrections || null]);
+        await client.query(text, [makeId(), roomCode, playerId, userId || null, it.kind || null, it.prompt || '', it.answer || '', it.score || 0, it.feedback || '', it.corrections || null]);
       }
       await client.query('COMMIT');
     } catch (e) {
@@ -147,8 +160,13 @@ export function playgroundStore(databaseUrl) {
       throw e;
     } finally { client.release(); }
   }
-  async function listRecent(roomCode, playerId, limit = 20) {
-    const res = await pool.query(`SELECT kind, prompt, answer, score, feedback, corrections, created_at AS "createdAt" FROM playground_logs WHERE room_code=$1 AND player_id=$2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+  async function listRecent({ roomCode, playerId, userId, limit = 20 }) {
+    let res;
+    if (userId) {
+      res = await pool.query(`SELECT kind, prompt, answer, score, feedback, corrections, created_at AS "createdAt" FROM playground_logs WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+    } else {
+      res = await pool.query(`SELECT kind, prompt, answer, score, feedback, corrections, created_at AS "createdAt" FROM playground_logs WHERE room_code=$1 AND player_id=$2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+    }
     return res.rows || [];
   }
   return { logResults, listRecent };

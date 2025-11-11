@@ -496,6 +496,7 @@ async function maybeResolveRound(room) {
     const item = {
       round: room.round,
       playerId: pid,
+      userId: getPlayer(room, pid)?.user?.id || null,
       prompt: room.prompts[pid] || '',
       answer: room.answers[pid] || '',
       score: results[pid]?.score ?? 0,
@@ -507,7 +508,7 @@ async function maybeResolveRound(room) {
     histItems.push({ roomCode: room.code, playerId: pid, ...item });
   }
   if (hstore && histItems.length) {
-    try { await hstore.addHistoryBulk(histItems); } catch {}
+    try { await hstore.addHistoryBulk(histItems.map(it => ({ roomCode: room.code, ...it }))); } catch {}
   }
 
   const livesPayload = !single
@@ -904,7 +905,7 @@ wss.on('connection', (ws, req) => {
           const ans = answers.find(a => a.id === r.id)?.answer || '';
           return { kind: ex.kind, prompt: ex.prompt, answer: ans, score: r.score, feedback: r.feedback, corrections: r.corrections };
         });
-        try { await pgstore.logResults(room.code, player.id, logs); } catch {}
+        try { await pgstore.logResults(room.code, player.id, player.user?.id || null, logs); } catch {}
       }
       return;
     }
@@ -921,12 +922,12 @@ wss.on('connection', (ws, req) => {
       let history = [];
       let pgl = [];
       if (hstore) {
-        try { history = await hstore.listRecent(room.code, pid, 20); } catch {}
+        try { history = await hstore.listRecent({ roomCode: room.code, playerId: pid, userId: player.user?.id || null, limit: 20 }); } catch {}
       } else {
         history = (room.history || []).filter(h => h.playerId === pid).slice(-20).reverse();
       }
       if (pgstore) {
-        try { pgl = await pgstore.listRecent(room.code, pid, 20); } catch {}
+        try { pgl = await pgstore.listRecent({ roomCode: room.code, playerId: pid, userId: player.user?.id || null, limit: 20 }); } catch {}
       }
       send({ type: 'progress_data', history, playground: pgl });
       return;

@@ -59,6 +59,8 @@
   const topicLegend = el('topicLegend');
   const toggleViewBtn = document.getElementById('toggleViewBtn');
   const playgroundBtn = el('playgroundBtn');
+  const favoritesBtn = el('favoritesBtn');
+  const progressBtn = el('progressBtn');
   const playgroundOverlay = el('playgroundOverlay');
   const pgList = el('pgList');
   const pgSubmit = el('pgSubmit');
@@ -281,6 +283,8 @@
       if (Array.isArray(msg.history)) renderHistory(msg.history);
       inPlayground = msg.status === 'playground';
       if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single' && !inPlayground) ? '' : 'none';
+      if (favoritesBtn) favoritesBtn.style.display = '';
+      if (progressBtn) progressBtn.style.display = '';
       if (playgroundOverlay) playgroundOverlay.style.display = inPlayground ? 'flex' : 'none';
       applyMobileView();
       if ((msg.status === 'waiting_spin' || msg.status === 'waiting_subspin') && msg.turn) setTurn(msg.turn);
@@ -403,10 +407,12 @@
 
     if (msg.type === 'favorites') {
       renderFavorites(msg.items || []);
+      // Also render into overlay if open
+      if (favoritesOverlay && favoritesOverlay.style.display !== 'none') renderFavoritesOverlay(msg.items || []);
     }
 
     if (msg.type === 'progress_data') {
-      if (!pgProgressBox) return;
+      if (!pgProgressBox && !(progressOverlay && progressOverlay.style.display !== 'none' && progressList)) return;
       const hist = msg.history || [];
       const pgs = msg.playground || [];
       const histHtml = hist.map((h) => `
@@ -423,13 +429,14 @@
           <div style=\"margin-top:4px\">${escapeHTML(x.feedback || '')}${x.corrections ? `\\n${escapeHTML(x.corrections)}` : ''}</div>
         </div>
       `).join('');
-      pgProgressBox.innerHTML = `
+      const _html_progress = `
         <h3 style=\"margin:4px 0\">Historial reciente</h3>
         ${histHtml || '<div class=\\"muted\\">Sin historial</div>'}
         <h3 style=\"margin:10px 0 4px 0\">Playground</h3>
         ${pgHtml || '<div class=\\"muted\\">Sin ejercicios</div>'}
       `;
-      pgProgressBox.style.display = '';
+      if (pgProgressBox) { pgProgressBox.innerHTML = _html_progress; pgProgressBox.style.display = ''; }
+      if (progressOverlay && progressOverlay.style.display !== 'none' && progressList) { progressList.innerHTML = _html_progress; }
     }
 
     if (msg.type === 'answer_received') {
@@ -758,6 +765,16 @@
       send({ type: 'enter_playground' });
     });
   }
+  if (favoritesBtn) favoritesBtn.addEventListener('click', () => {
+    send({ type: 'list_favorites' });
+    if (favoritesOverlay) favoritesOverlay.style.display = 'flex';
+  });
+  if (favClose) favClose.addEventListener('click', () => { if (favoritesOverlay) favoritesOverlay.style.display = 'none'; });
+  if (progressBtn) progressBtn.addEventListener('click', () => {
+    send({ type: 'playground_progress' });
+    if (progressOverlay) progressOverlay.style.display = 'flex';
+  });
+  if (progClose) progClose.addEventListener('click', () => { if (progressOverlay) progressOverlay.style.display = 'none'; });
 
   if (pgMore) pgMore.addEventListener('click', () => { send({ type: 'playground_more' }); });
   if (pgExit) pgExit.addEventListener('click', () => {
@@ -826,6 +843,30 @@
       const id = row.getAttribute('data-id');
       row.querySelector('[data-action="practice"]').addEventListener('click', () => {
         send({ type: 'start_playground_note', id });
+      });
+      row.querySelector('[data-action="delete"]').addEventListener('click', () => {
+        send({ type: 'delete_favorite_note', id });
+        send({ type: 'list_favorites' });
+      });
+    });
+  }
+
+  function renderFavoritesOverlay(list) {
+    if (!favList) return;
+    favList.innerHTML = (list || []).map(f => `
+      <div class="pg-fav" data-id="${f.id}">
+        <div class="text">${escapeHTML(f.text)}</div>
+        <div class="actions">
+          <button data-action="practice">Practicar</button>
+          <button data-action="delete">Eliminar</button>
+        </div>
+      </div>
+    `).join('');
+    favList.querySelectorAll('.pg-fav').forEach((row) => {
+      const id = row.getAttribute('data-id');
+      row.querySelector('[data-action="practice"]').addEventListener('click', () => {
+        send({ type: 'start_playground_note', id });
+        if (favoritesOverlay) favoritesOverlay.style.display = 'none';
       });
       row.querySelector('[data-action="delete"]').addEventListener('click', () => {
         send({ type: 'delete_favorite_note', id });
@@ -1116,3 +1157,9 @@
     });
   }
 })();
+  const favoritesOverlay = el('favoritesOverlay');
+  const favList = el('favList');
+  const favClose = el('favClose');
+  const progressOverlay = el('progressOverlay');
+  const progressList = el('progressList');
+  const progClose = el('progClose');

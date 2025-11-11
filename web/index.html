@@ -97,6 +97,8 @@
         <span id="roundLabel">Round: 0</span>
         <button id="toggleViewBtn" class="mobile-only" style="display:none">Ver oponente</button>
         <sl-button id="playgroundBtn" variant="neutral" style="display:none">🎯 Playground</sl-button>
+        <sl-button id="favoritesBtn" variant="neutral" style="display:none">⭐ Favoritos</sl-button>
+        <sl-button id="progressBtn" variant="neutral" style="display:none">📈 Progreso</sl-button>
       </div>
     </header>
 
@@ -200,6 +202,28 @@
           <sl-button id="pgExit" variant="warning">Salir del playground</sl-button>
         </div>
         <div id="pgProgressBox" class="pg-list" style="display:none; margin-top:10px"></div>
+      </sl-card>
+    </div>
+
+    <!-- Favorites overlay -->
+    <div id="favoritesOverlay" class="overlay" style="display:none">
+      <sl-card class="card pg-card">
+        <div class="pg-header">
+          <h2>Favoritos</h2>
+          <button id="favClose" class="pg-close" title="Cerrar">×</button>
+        </div>
+        <div id="favList" class="pg-list"></div>
+      </sl-card>
+    </div>
+
+    <!-- Progress overlay -->
+    <div id="progressOverlay" class="overlay" style="display:none">
+      <sl-card class="card pg-card">
+        <div class="pg-header">
+          <h2>Progreso</h2>
+          <button id="progClose" class="pg-close" title="Cerrar">×</button>
+        </div>
+        <div id="progressList" class="pg-list"></div>
       </sl-card>
     </div>
 
