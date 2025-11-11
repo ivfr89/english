@@ -780,15 +780,12 @@
       pgSubmit.classList.add('btn-loading');
       pgSubmit.setAttribute('disabled','');
       if (pgMore) pgMore.setAttribute('disabled','');
-      if (pgExit) pgExit.setAttribute('disabled','');
-      if (pgClose) pgClose.setAttribute('disabled','');
+      // Allow exiting the playground even while evaluating
     } else {
       pgSubmit.textContent = label;
       pgSubmit.classList.remove('btn-loading');
       pgSubmit.removeAttribute('disabled');
       if (pgMore) pgMore.removeAttribute('disabled');
-      if (pgExit) pgExit.removeAttribute('disabled');
-      if (pgClose) pgClose.removeAttribute('disabled');
     }
   }
   if (pgSubmit) pgSubmit.addEventListener('click', () => {
@@ -969,38 +966,64 @@
     cooldownLabel.textContent = `Tiempo de repaso: ${sec}s`;
     if (ms <= 0) stopCooldown();
   }
-})();
+// keep IIFE open; auth helpers below will run in same scope
   // Load Google login button if configured
   initGoogleLogin();
   checkSession();
 
   async function initGoogleLogin() {
+    const es = (nativeSelect?.value === 'Spanish');
+    function showGateWithMsg(msg) {
+      if (authGate) authGate.style.display = 'flex';
+      if (overlay) overlay.style.display = 'none';
+      if (loginStatus && msg) loginStatus.textContent = msg;
+    }
     try {
       const cfg = await fetch('/config.json').then(r => r.json()).catch(() => ({}));
-      if (!cfg.googleClientId) return; // not configured
-      await loadScript('https://accounts.google.com/gsi/client');
-      // We cannot expose clientId here from server directly; GIS reads it inside button data attributes
-      // Use promptless flow via button with data-client_id injected via meta is not available here,
-      // so we build the button with JS after loading script.
-      // Render button
-      if (window.google && gLogin) {
-        window.google.accounts.id.initialize({
-          client_id: cfg.googleClientId,
-          callback: handleGoogleCredential,
-        });
-        window.google.accounts.id.renderButton(gLogin, { theme: 'outline', size: 'large' });
-        // If no session yet, show gate
-        const me = await fetch('/auth/me').then(r=>r.json()).catch(()=>({ok:false}));
-        if (!me.ok && authGate) {
-          // Localize intro
-          const es = (nativeSelect?.value === 'Spanish');
-          const intro = document.getElementById('authIntro');
-          if (intro) intro.textContent = es ? 'Inicia sesión con Google para continuar.' : 'Sign in with Google to continue.';
-          authGate.style.display = 'flex';
-          overlay.style.display = 'none';
-        }
+      if (!cfg.googleClientId) {
+        showGateWithMsg(es ? 'Google Client ID no configurado. Define GOOGLE_CLIENT_ID en .env.' : 'Google Client ID not configured. Set GOOGLE_CLIENT_ID in .env.');
+        return;
       }
-    } catch {}
+      // If no session, show gate immediately while loading GIS
+      const me = await fetch('/auth/me').then(r=>r.json()).catch(()=>({ok:false}));
+      if (!me.ok) showGateWithMsg(es ? 'Inicia sesión con Google para continuar.' : 'Sign in with Google to continue.');
+
+      try {
+        await loadScript('https://accounts.google.com/gsi/client');
+      } catch (e) {
+        showGateWithMsg(es ? 'No se pudo cargar Google. Desactiva bloqueadores y recarga.' : 'Failed to load Google. Disable blockers and reload.');
+        return;
+      }
+
+      if (window.google && gLogin) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: cfg.googleClientId,
+            callback: handleGoogleCredential,
+          });
+          window.google.accounts.id.renderButton(gLogin, { theme: 'outline', size: 'large' });
+        } catch (e) {
+          showGateWithMsg(es ? 'No se pudo inicializar el botón de Google.' : 'Could not initialize Google button.');
+          return;
+        }
+        // Verify button rendered; if not, likely 403 due to origin mismatch
+        setTimeout(() => {
+          try {
+            if (!gLogin.firstChild) {
+              const diag = `origin=${location.origin} • client_id=${cfg.googleClientId}`;
+              const msg = es
+                ? `No se pudo mostrar el botón (403). Revisa orígenes autorizados en Google Cloud (debe incluir exactamente ${location.origin}). Detalles: ${diag}`
+                : `Button failed to render (403). Check authorized JavaScript origins in Google Cloud (must include exactly ${location.origin}). Details: ${diag}`;
+              showGateWithMsg(msg);
+            }
+          } catch {}
+        }, 700);
+      } else {
+        showGateWithMsg(es ? 'Google no está disponible en esta página.' : 'Google is not available on this page.');
+      }
+    } catch (e) {
+      showGateWithMsg(es ? 'Error de autenticación. Recarga la página.' : 'Auth error. Reload the page.');
+    }
   }
 
   async function checkSession() {
@@ -1092,3 +1115,4 @@
       s.onload = () => resolve(); s.onerror = reject; document.head.appendChild(s);
     });
   }
+})();
