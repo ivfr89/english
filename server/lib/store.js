@@ -22,6 +22,10 @@ export function createStore(databaseUrl) {
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_fav_room_player ON favorites(room_code, player_id);
+      DO $$ BEGIN
+        ALTER TABLE favorites ADD COLUMN IF NOT EXISTS user_id TEXT;
+      EXCEPTION WHEN others THEN NULL; END $$;
+      CREATE INDEX IF NOT EXISTS idx_fav_user ON favorites(user_id, created_at);
 
       CREATE TABLE IF NOT EXISTS history (
         id TEXT PRIMARY KEY,
@@ -64,23 +68,34 @@ export function createStore(databaseUrl) {
 
   function makeId() { return crypto.randomUUID ? crypto.randomUUID() : ('fav_' + Math.random().toString(36).slice(2, 10)); }
 
-  async function addFavorite({ roomCode, playerId, text }) {
+  async function addFavorite({ roomCode, playerId, userId, text }) {
     const id = makeId();
-    await pool.query(`INSERT INTO favorites (id, room_code, player_id, text) VALUES ($1,$2,$3,$4)`, [id, roomCode, playerId, text]);
+    await pool.query(`INSERT INTO favorites (id, room_code, player_id, user_id, text) VALUES ($1,$2,$3,$4,$5)`, [id, roomCode || null, playerId || null, userId || null, text]);
     return { id, roomCode, playerId, text, createdAt: new Date().toISOString() };
   }
 
-  async function listFavorites(roomCode, playerId, limit = 50) {
-    const res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", created_at AS "createdAt" FROM favorites WHERE room_code = $1 AND player_id = $2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+  async function listFavorites({ roomCode, playerId, userId, limit = 50 }) {
+    let res;
+    if (userId) {
+      res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+    } else {
+      res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE room_code = $1 AND player_id = $2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+    }
     return res.rows || [];
   }
 
-  async function deleteFavorite(id, playerId, roomCode) {
-    await pool.query(`DELETE FROM favorites WHERE id = $1 AND player_id = $2 AND room_code = $3`, [id, playerId, roomCode]);
+  async function deleteFavorite(id, { playerId, roomCode, userId }) {
+    if (userId) {
+      await pool.query(`DELETE FROM favorites WHERE id = $1 AND user_id = $2`, [id, userId]);
+    } else {
+      await pool.query(`DELETE FROM favorites WHERE id = $1 AND player_id = $2 AND room_code = $3`, [id, playerId, roomCode]);
+    }
   }
 
-  async function getFavoriteById(id, playerId, roomCode) {
-    const res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId" FROM favorites WHERE id = $1 AND player_id = $2 AND room_code = $3`, [id, playerId, roomCode]);
+  async function getFavoriteById({ id, playerId, roomCode, userId }) {
+    const res = userId
+      ? await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId" FROM favorites WHERE id = $1 AND user_id = $2`, [id, userId])
+      : await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId" FROM favorites WHERE id = $1 AND player_id = $2 AND room_code = $3`, [id, playerId, roomCode]);
     return res.rows?.[0] || null;
   }
 

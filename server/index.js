@@ -954,7 +954,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'add_favorite_note' && room && player.id) {
       const text = String(msg.text || '').slice(0, 2000).trim();
       if (!text) return;
-      if (store) { await store.addFavorite({ roomCode: room.code, playerId: player.id, text }); }
+      if (store) { await store.addFavorite({ roomCode: room.code, playerId: player.id, userId: player.user?.id || null, text }); }
       else {
         room.favorites = room.favorites || [];
         room.favorites.unshift({ id: makeId('fav'), text, playerId: player.id, createdAt: Date.now() });
@@ -963,13 +963,13 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'delete_favorite_note' && room && player.id) {
       const id = String(msg.id || '');
-      if (store) { await store.deleteFavorite(id, player.id, room.code); }
+      if (store) { await store.deleteFavorite(id, { playerId: player.id, roomCode: room.code, userId: player.user?.id || null }); }
       else { room.favorites = (room.favorites || []).filter((f) => f.id !== id || f.playerId !== player.id ? true : false); }
       return;
     }
     if (msg.type === 'list_favorites' && room && player.id) {
       let items;
-      if (store) { items = await store.listFavorites(room.code, player.id); }
+      if (store) { items = await store.listFavorites({ roomCode: room.code, playerId: player.id, userId: player.user?.id || null, limit: 50 }); }
       else { items = (room.favorites || []).filter(f => f.playerId === player.id).slice(0, 50); }
       send({ type: 'favorites', items });
       return;
@@ -977,7 +977,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'start_playground_note' && room && player.id) {
       const id = String(msg.id || '');
       let note = null;
-      if (store) { note = await store.getFavoriteById(id, player.id, room.code); }
+      if (store) { note = await store.getFavoriteById({ id, playerId: player.id, roomCode: room.code, userId: player.user?.id || null }); }
       else { note = (room.favorites || []).find(f => f.id === id && f.playerId === player.id); }
       if (!note) return;
       room.playground = room.playground || {};
