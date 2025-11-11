@@ -83,12 +83,14 @@ export function createStore(databaseUrl) {
   }
 
   async function listFavorites({ roomCode, playerId, userId, limit = 50 }) {
-    let res;
+    // Prefer user-based favorites; if none found, fallback to room+player (legacy)
     if (userId) {
-      res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
-    } else {
-      res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE room_code = $1 AND player_id = $2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+      const byUser = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, [userId, limit]);
+      if ((byUser.rows || []).length) return byUser.rows;
+      const legacy = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE room_code = $1 AND player_id = $2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
+      return legacy.rows || [];
     }
+    const res = await pool.query(`SELECT id, text, room_code AS "roomCode", player_id AS "playerId", user_id AS "userId", created_at AS "createdAt" FROM favorites WHERE room_code = $1 AND player_id = $2 ORDER BY created_at DESC LIMIT $3`, [roomCode, playerId, limit]);
     return res.rows || [];
   }
 

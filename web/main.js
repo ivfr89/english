@@ -71,6 +71,13 @@
   const pgNewNote = el('pgNewNote');
   const pgAddNote = el('pgAddNote');
   const addFavBtn = el('addFavBtn');
+  // Overlays for favorites/progress (declare early for global handlers)
+  const favoritesOverlay = el('favoritesOverlay');
+  const favList = el('favList');
+  const favClose = el('favClose');
+  const progressOverlay = el('progressOverlay');
+  const progressList = el('progressList');
+  const progClose = el('progClose');
   const spTitle = el('spTitle');
   const spDesc = el('spDesc');
   const spThresholdLabel = el('spThresholdLabel');
@@ -103,6 +110,7 @@
   let cooldownEndsAt = null;
   let mobileView = 'you'; // 'you' | 'opponent'
   let inPlayground = false;
+  let pgBlockOpenUntil = 0; // guard to avoid immediate re-open after exit
 
   // Size the wheel immediately on load to avoid oversized initial render
   ensureWheelSize();
@@ -170,6 +178,7 @@
   function rememberMode(m) { lsSet(LS.lastMode, m); }
   function rememberRoom(code) { if (code) lsSet(LS.lastRoom, code); }
 
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   // --- Lightweight dictionary menu near selection ---
   let dictMenuEl = null;
   let lastSelectionText = '';
@@ -218,9 +227,45 @@
     if (!rect || (rect.width === 0 && rect.height === 0)) { hideDictMenu(); return; }
     showDictMenuAt(rect);
   }
-  document.addEventListener('mouseup', () => setTimeout(onSelectionChange, 0));
-  document.addEventListener('keyup', (e) => { if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt') return; setTimeout(onSelectionChange, 0); });
+  if (!isMobile) {
+    document.addEventListener('mouseup', () => setTimeout(onSelectionChange, 0));
+    document.addEventListener('keyup', (e) => { if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt') return; setTimeout(onSelectionChange, 0); });
+  }
   if (dictClose) dictClose.addEventListener('click', () => { if (dictPopup) dictPopup.style.display = 'none'; if (dictLoader) dictLoader.style.display = 'none'; });
+
+  // Toolbar-based dictionary for mobile or fallback
+  window._dictExplain = () => {
+    const sel = (window.getSelection()?.toString() || '').trim();
+    if (sel) {
+      if (dictPopup) dictPopup.style.display = '';
+      if (dictLoader) dictLoader.style.display = 'inline-block';
+      if (dictContent) dictContent.textContent = 'Analizando…';
+      const context = (yourPrompt?.textContent || '').slice(0, 2000);
+      send({ type: 'explain_selection', text: sel.slice(0,160), context, nativeLanguage });
+      return;
+    }
+    // No selection (common on Android): reveal inline input
+    if (dictText) dictText.style.display = '';
+    if (dictGoBtn) dictGoBtn.style.display = '';
+    if (dictText) { dictText.focus(); dictText.select?.(); }
+  };
+  window._dictGo = () => {
+    const text = (dictText?.value || '').trim();
+    if (!text) return;
+    if (dictPopup) dictPopup.style.display = '';
+    if (dictLoader) dictLoader.style.display = 'inline-block';
+    if (dictContent) dictContent.textContent = 'Analizando…';
+    const context = (yourPrompt?.textContent || '').slice(0, 2000);
+    send({ type: 'explain_selection', text: text.slice(0,160), context, nativeLanguage });
+  };
+
+  window._submitAnswer = () => {
+    const text = yourAnswer.value.trim();
+    if (!text) return;
+    send({ type: 'answer', text });
+    submit.disabled = true;
+    info.textContent = 'Waiting for opponent...';
+  };
 
   function send(obj) { ws.send(JSON.stringify(obj)); }
 
@@ -384,6 +429,10 @@
     }
 
     if (msg.type === 'playground_ready') {
+      if (Date.now() < pgBlockOpenUntil) {
+        // Ignore stale playground_ready right after exiting
+        return;
+      }
       inPlayground = true;
       if (playgroundOverlay) playgroundOverlay.style.display = 'flex';
       renderPlayground(msg.exercises || []);
@@ -765,29 +814,9 @@
       send({ type: 'enter_playground' });
     });
   }
-  if (favoritesBtn) favoritesBtn.addEventListener('click', () => {
-    send({ type: 'list_favorites' });
-    if (favoritesOverlay) favoritesOverlay.style.display = 'flex';
-  });
-  if (favClose) favClose.addEventListener('click', () => { if (favoritesOverlay) favoritesOverlay.style.display = 'none'; });
-  if (progressBtn) progressBtn.addEventListener('click', () => {
-    send({ type: 'playground_progress' });
-    if (progressOverlay) progressOverlay.style.display = 'flex';
-  });
-  if (progClose) progClose.addEventListener('click', () => { if (progressOverlay) progressOverlay.style.display = 'none'; });
+  // Favorites/Progress handlers moved to global inline handlers to avoid shadow/bubbling quirks
 
-  if (pgMore) pgMore.addEventListener('click', () => { send({ type: 'playground_more' }); });
-  if (pgExit) pgExit.addEventListener('click', () => {
-    send({ type: 'exit_playground' });
-    // Optimistic UI: hide overlay immediately
-    inPlayground = false;
-    if (playgroundOverlay) playgroundOverlay.style.display = 'none';
-    if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single') ? '' : 'none';
-  });
-  if (pgClose) pgClose.addEventListener('click', () => { if (pgExit) pgExit.click(); });
-  if (playgroundOverlay) playgroundOverlay.addEventListener('click', (e) => {
-    if (e.target === playgroundOverlay) { if (pgExit) pgExit.click(); }
-  });
+  // Inline onclick handlers are used instead for playground controls
   function setPgLoading(loading) {
     if (!pgSubmit) return;
     const label = nativeSelect?.value === 'Spanish' ? 'Enviar' : 'Submit';
@@ -805,12 +834,47 @@
       if (pgMore) pgMore.removeAttribute('disabled');
     }
   }
-  if (pgSubmit) pgSubmit.addEventListener('click', () => {
+  // Inline onclick handler is used for submit
+
+  // Expose simple global handlers as a fail-safe for clicks
+  window._pgEnter = () => { send({ type: 'enter_playground' }); };
+  window._pgExit = () => {
+    send({ type: 'exit_playground' });
+    inPlayground = false;
+    pgBlockOpenUntil = Date.now() + 1500;
+    if (playgroundOverlay) playgroundOverlay.style.display = 'none';
+    if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single') ? '' : 'none';
+  };
+  window._pgMore = () => { send({ type: 'playground_more' }); };
+  window._pgSubmit = () => {
+    if (pgSubmit?.disabled) return;
     const items = Array.from(document.querySelectorAll('.pg-item'));
     const answers = items.map((it) => ({ id: it.getAttribute('data-id'), answer: (it.querySelector('textarea')?.value || '').trim() }));
     setPgLoading(true);
     send({ type: 'playground_submit', answers });
-  });
+  };
+  window._pgAddNote = () => {
+    const text = (pgNewNote?.value || '').trim();
+    if (!text) return;
+    send({ type: 'add_favorite_note', text });
+    pgNewNote.value = '';
+    send({ type: 'list_favorites' });
+  };
+  window._addFavMain = () => {
+    const sel = (window.getSelection()?.toString() || '').trim();
+    const text = sel || (yourPrompt?.textContent || '').trim();
+    if (!text) return;
+    send({ type: 'add_favorite_note', text });
+    toast('⭐ Nota guardada', 'success');
+  };
+  window._favOpen = () => { send({ type: 'list_favorites' }); if (favoritesOverlay) favoritesOverlay.style.display = 'flex'; };
+  window._favClose = () => { if (favoritesOverlay) favoritesOverlay.style.display = 'none'; };
+  window._progOpen = () => { send({ type: 'playground_progress' }); if (progressOverlay) progressOverlay.style.display = 'flex'; };
+  window._progClose = () => { if (progressOverlay) progressOverlay.style.display = 'none'; };
+  window._pgProgress = () => { if (pgProgressBox) pgProgressBox.style.display = ''; send({ type: 'playground_progress' }); };
+
+  // Robust delegated clicks for sl-button and nested elements
+  // (Removed delegated handlers — using explicit onclick globals)
 
   if (addFavBtn) addFavBtn.addEventListener('click', () => {
     const sel = (window.getSelection()?.toString() || '').trim();
@@ -1157,9 +1221,3 @@
     });
   }
 })();
-  const favoritesOverlay = el('favoritesOverlay');
-  const favList = el('favList');
-  const favClose = el('favClose');
-  const progressOverlay = el('progressOverlay');
-  const progressList = el('progressList');
-  const progClose = el('progClose');

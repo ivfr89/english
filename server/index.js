@@ -864,8 +864,12 @@ wss.on('connection', (ws, req) => {
     // --- Playground (single-player) ---
     if (msg.type === 'enter_playground' && room && room.mode === 'single') {
       if (room.status === 'spinning' || room.status === 'evaluating') return;
+      // Ignore repeated requests if already inside Playground
+      if (room.status === 'playground') return;
       room.playground = room.playground || {};
-      room.playground.prevStatus = room.status;
+      if (!room.playground.prevStatus || room.playground.prevStatus === 'playground') {
+        room.playground.prevStatus = room.status;
+      }
       room.status = 'playground';
       const exercises = proposePlayground(room);
       room.playground.exercises = exercises;
@@ -911,9 +915,18 @@ wss.on('connection', (ws, req) => {
     }
 
     if (msg.type === 'exit_playground' && room && room.mode === 'single' && room.status === 'playground') {
-      const prev = room.playground?.prevStatus || 'waiting_spin';
+      let prev = room.playground?.prevStatus || 'waiting_spin';
+      if (!prev || prev === 'playground') prev = 'waiting_spin';
       room.status = prev;
+      // Clear playground context to prevent stale reopen
+      room.playground = null;
       broadcastRoom(room, roomSnapshot(room));
+      // If we are now waiting to spin, emit a turn update for UX
+      if (room.status === 'waiting_spin') {
+        room.stage = 'topic';
+        room.turn = 'p1';
+        broadcastRoom(room, { type: 'turn', playerId: room.turn, topics: TOPICS, stage: 'topic' });
+      }
       return;
     }
 
