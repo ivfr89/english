@@ -5,6 +5,13 @@
   const el = (id) => document.getElementById(id);
   const overlay = el('overlay');
   const nameInput = el('name');
+  const nameRow = el('nameRow');
+  const userProfile = el('userProfile');
+  const userAvatar = el('userAvatar');
+  const userName = el('userName');
+  const logoutBtn = el('logoutBtn');
+  const switchBtn = el('switchBtn');
+  let lastUserEmail = '';
   const langSelect = el('language');
   const nativeSelect = el('native');
   const createBtn = el('createRoom');
@@ -12,6 +19,9 @@
   const joinBtn = el('joinRoom');
   const roomCodeInput = el('roomCode');
   const status = el('status');
+  const loginStatus = el('loginStatus');
+  const gLogin = el('gLogin');
+  const authGate = el('authGate');
 
   const roomLabel = el('roomLabel');
   const roundLabel = el('roundLabel');
@@ -54,10 +64,16 @@
   const pgSubmit = el('pgSubmit');
   const pgMore = el('pgMore');
   const pgExit = el('pgExit');
+  const pgClose = el('pgClose');
   const pgFavs = el('pgFavs');
   const pgNewNote = el('pgNewNote');
   const pgAddNote = el('pgAddNote');
   const addFavBtn = el('addFavBtn');
+  const spTitle = el('spTitle');
+  const spDesc = el('spDesc');
+  const spThresholdLabel = el('spThresholdLabel');
+  const mpTitle = el('mpTitle');
+  const mpDesc = el('mpDesc');
 
   let playerId = null;
   let roomCode = null;
@@ -88,6 +104,69 @@
 
   // Size the wheel immediately on load to avoid oversized initial render
   ensureWheelSize();
+
+  // Localize overlay descriptions based on native language
+  function localizeOverlay() {
+    const nat = (nativeSelect?.value || 'Spanish');
+    const es = nat === 'Spanish';
+    if (spTitle) spTitle.textContent = '🎯 Single Player';
+    if (mpTitle) mpTitle.textContent = '🆚 Multiplayer';
+    if (es) {
+      if (spDesc) spDesc.textContent = 'Practica solo con un bot. Pierdes vida si tu puntuación cae por debajo del umbral.';
+      if (spThresholdLabel) spThresholdLabel.textContent = 'Umbral';
+      if (singleBtn) singleBtn.textContent = 'Comenzar práctica';
+      if (mpDesc) mpDesc.textContent = 'Juega 1v1 en línea. Crea una sala o únete con un código.';
+      if (createBtn) createBtn.textContent = 'Crear sala';
+      if (joinBtn) joinBtn.textContent = 'Unirme';
+      if (roomCodeInput) roomCodeInput.placeholder = 'Código de sala';
+      if (pgSubmit) pgSubmit.textContent = 'Enviar';
+    } else {
+      if (spDesc) spDesc.textContent = 'Practice solo with a bot. You lose HP if your score falls below the threshold.';
+      if (spThresholdLabel) spThresholdLabel.textContent = 'Threshold';
+      if (singleBtn) singleBtn.textContent = 'Start practice';
+      if (mpDesc) mpDesc.textContent = 'Play 1v1 online. Create a room or join with a code.';
+      if (createBtn) createBtn.textContent = 'Create room';
+      if (joinBtn) joinBtn.textContent = 'Join';
+      if (roomCodeInput) roomCodeInput.placeholder = 'Room code';
+      if (pgSubmit) pgSubmit.textContent = 'Submit';
+    }
+  }
+  if (nativeSelect) nativeSelect.addEventListener('change', localizeOverlay);
+  localizeOverlay();
+  if (nativeSelect && logoutBtn) nativeSelect.addEventListener('change', () => {
+    logoutBtn.textContent = (nativeSelect.value === 'Spanish') ? 'Cerrar sesión' : 'Sign out';
+  });
+
+  // --- Persist user preferences locally ---
+  const LS = {
+    name: 'ld.name',
+    learn: 'ld.learn',
+    native: 'ld.native',
+    threshold: 'ld.threshold',
+    lastMode: 'ld.lastMode', // 'single' | 'multi'
+    lastRoom: 'ld.lastRoom',
+  };
+  function lsGet(k, d='') { try { return localStorage.getItem(k) ?? d; } catch { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, String(v)); } catch {} }
+
+  // Restore fields
+  if (nameInput) nameInput.value = lsGet(LS.name, nameInput.value || '');
+  if (langSelect) langSelect.value = lsGet(LS.learn, langSelect.value || 'English');
+  if (nativeSelect) nativeSelect.value = lsGet(LS.native, nativeSelect.value || 'Spanish');
+  if (spThresholdInput) {
+    const storedTh = parseInt(lsGet(LS.threshold, spThresholdInput.value || '70'), 10);
+    if (!isNaN(storedTh)) spThresholdInput.value = String(storedTh);
+  }
+
+  // Persist on change
+  if (nameInput) nameInput.addEventListener('input', () => lsSet(LS.name, nameInput.value.trim()));
+  if (langSelect) langSelect.addEventListener('change', () => lsSet(LS.learn, langSelect.value));
+  if (nativeSelect) nativeSelect.addEventListener('change', () => lsSet(LS.native, nativeSelect.value));
+  if (spThresholdInput) spThresholdInput.addEventListener('change', () => lsSet(LS.threshold, spThresholdInput.value));
+
+  // Remember last mode and room
+  function rememberMode(m) { lsSet(LS.lastMode, m); }
+  function rememberRoom(code) { if (code) lsSet(LS.lastRoom, code); }
 
   // --- Lightweight dictionary menu near selection ---
   let dictMenuEl = null;
@@ -154,6 +233,7 @@
       overlay.style.display = 'none';
       roomLabel.textContent = `Room: ${roomCode}`;
       info.textContent = 'Share the room code with your friend.';
+      rememberRoom(roomCode);
     }
 
     if (msg.type === 'room_joined') {
@@ -161,6 +241,7 @@
       overlay.style.display = 'none';
       roomLabel.textContent = `Room: ${roomCode}`;
       info.textContent = 'Opponent connected. Get ready!';
+      rememberRoom(roomCode);
     }
 
     if (msg.type === 'state') {
@@ -311,6 +392,13 @@
         const box = document.querySelector(`.pg-item[data-id=\"${r.id}\"] .pg-feedback`);
         if (box) box.textContent = `Score: ${r.score}\n${r.feedback}${r.corrections ? `\nCorrections: ${r.corrections}` : ''}`;
       });
+      // Re-enable UI after receiving feedback
+      setPgLoading(false);
+    }
+
+    if (msg.type === 'playground_synonyms') {
+      const items = msg.items || [];
+      items.forEach((it) => updateExerciseSynonyms(it.id, it.synonyms || []));
     }
 
     if (msg.type === 'favorites') {
@@ -447,6 +535,7 @@
     const name = nameInput.value.trim() || 'Player';
     learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
+    rememberMode('multi');
     send({ type: 'create_room', name, learningLanguage, nativeLanguage });
     status.textContent = 'Creating room...';
   });
@@ -457,6 +546,8 @@
     const name = nameInput.value.trim() || 'Player';
     learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
+    rememberMode('multi');
+    rememberRoom(code);
     send({ type: 'join_room', roomCode: code, name, learningLanguage, nativeLanguage });
     status.textContent = 'Joining room...';
   });
@@ -486,6 +577,7 @@
       nativeLanguage = nativeSelect.value;
       const th = parseInt(spThresholdInput?.value || '70', 10) || 70;
       targetThreshold = Math.max(40, Math.min(100, th));
+      rememberMode('single');
       send({ type: 'single_start', name, learningLanguage, nativeLanguage, threshold: targetThreshold });
       status.textContent = 'Starting single player...';
     });
@@ -675,9 +767,34 @@
     if (playgroundOverlay) playgroundOverlay.style.display = 'none';
     if (playgroundBtn) playgroundBtn.style.display = (gameMode === 'single') ? '' : 'none';
   });
+  if (pgClose) pgClose.addEventListener('click', () => { if (pgExit) pgExit.click(); });
+  if (playgroundOverlay) playgroundOverlay.addEventListener('click', (e) => {
+    if (e.target === playgroundOverlay) { if (pgExit) pgExit.click(); }
+  });
+  function setPgLoading(loading) {
+    if (!pgSubmit) return;
+    const label = nativeSelect?.value === 'Spanish' ? 'Enviar' : 'Submit';
+    const sending = nativeSelect?.value === 'Spanish' ? 'Enviando…' : 'Sending…';
+    if (loading) {
+      pgSubmit.innerHTML = `<span class="btn-spinner"></span>${sending}`;
+      pgSubmit.classList.add('btn-loading');
+      pgSubmit.setAttribute('disabled','');
+      if (pgMore) pgMore.setAttribute('disabled','');
+      if (pgExit) pgExit.setAttribute('disabled','');
+      if (pgClose) pgClose.setAttribute('disabled','');
+    } else {
+      pgSubmit.textContent = label;
+      pgSubmit.classList.remove('btn-loading');
+      pgSubmit.removeAttribute('disabled');
+      if (pgMore) pgMore.removeAttribute('disabled');
+      if (pgExit) pgExit.removeAttribute('disabled');
+      if (pgClose) pgClose.removeAttribute('disabled');
+    }
+  }
   if (pgSubmit) pgSubmit.addEventListener('click', () => {
     const items = Array.from(document.querySelectorAll('.pg-item'));
     const answers = items.map((it) => ({ id: it.getAttribute('data-id'), answer: (it.querySelector('textarea')?.value || '').trim() }));
+    setPgLoading(true);
     send({ type: 'playground_submit', answers });
   });
 
@@ -726,10 +843,70 @@
       <div class="pg-item" data-id="${ex.id}">
         <h4>${escapeHTML(ex.title || ex.kind || 'Ejercicio')}</h4>
         <div class="muted">${escapeHTML(ex.prompt || '')}</div>
+        ${renderSynonyms(ex)}
         <textarea placeholder="Tu respuesta..."></textarea>
         <div class="pg-feedback"></div>
       </div>
     `).join('');
+    // Wire chips to insert text
+    pgList.querySelectorAll('.pg-item').forEach((it) => {
+      const ta = it.querySelector('textarea');
+      it.querySelectorAll('.pg-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const value = chip.getAttribute('data-word') || '';
+          insertAtCursor(ta, value);
+          ta.focus();
+        });
+      });
+    });
+  }
+
+  function renderSynonyms(ex) {
+    const syns = Array.isArray(ex.synonyms) ? ex.synonyms : [];
+    if (!syns.length) return '';
+    const nat = (nativeSelect?.value || 'Spanish');
+    const es = nat === 'Spanish';
+    const label = es ? 'Sugerencias de sinónimos' : 'Synonym suggestions';
+    const chips = syns.map(pair => {
+      const term = escapeHTML(pair.term);
+      const opts = (pair.options || []).slice(0,3).map(o => `<span class="pg-chip" data-word="${escapeHTML(o)}">${escapeHTML(o)}</span>`).join('');
+      return `<div class="pg-syns"><span class="muted">${label} (${term}):</span> ${opts}</div>`;
+    }).join('');
+    return chips;
+  }
+
+  function updateExerciseSynonyms(id, syns) {
+    const it = document.querySelector(`.pg-item[data-id="${id}"]`);
+    if (!it) return;
+    // Remove previous synonym blocks
+    it.querySelectorAll('.pg-syns').forEach(n => n.remove());
+    const html = renderSynonyms({ synonyms: syns });
+    if (!html) return;
+    const ta = it.querySelector('textarea');
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    it.insertBefore(wrapper, ta);
+    // Wire new chips
+    wrapper.querySelectorAll('.pg-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const value = chip.getAttribute('data-word') || '';
+        insertAtCursor(ta, value);
+        ta.focus();
+      });
+    });
+  }
+
+  function insertAtCursor(textarea, text) {
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const before = textarea.value.slice(0, start);
+    const after = textarea.value.slice(end);
+    const spaceBefore = before && !/\s$/.test(before) ? ' ' : '';
+    const spaceAfter = after && !/^\s/.test(after) ? ' ' : '';
+    textarea.value = before + spaceBefore + text + spaceAfter + after;
+    const pos = (before + spaceBefore + text).length;
+    textarea.setSelectionRange(pos, pos);
   }
 
   // Allow Esc to exit playground quickly
@@ -793,3 +970,125 @@
     if (ms <= 0) stopCooldown();
   }
 })();
+  // Load Google login button if configured
+  initGoogleLogin();
+  checkSession();
+
+  async function initGoogleLogin() {
+    try {
+      const cfg = await fetch('/config.json').then(r => r.json()).catch(() => ({}));
+      if (!cfg.googleClientId) return; // not configured
+      await loadScript('https://accounts.google.com/gsi/client');
+      // We cannot expose clientId here from server directly; GIS reads it inside button data attributes
+      // Use promptless flow via button with data-client_id injected via meta is not available here,
+      // so we build the button with JS after loading script.
+      // Render button
+      if (window.google && gLogin) {
+        window.google.accounts.id.initialize({
+          client_id: cfg.googleClientId,
+          callback: handleGoogleCredential,
+        });
+        window.google.accounts.id.renderButton(gLogin, { theme: 'outline', size: 'large' });
+        // If no session yet, show gate
+        const me = await fetch('/auth/me').then(r=>r.json()).catch(()=>({ok:false}));
+        if (!me.ok && authGate) {
+          // Localize intro
+          const es = (nativeSelect?.value === 'Spanish');
+          const intro = document.getElementById('authIntro');
+          if (intro) intro.textContent = es ? 'Inicia sesión con Google para continuar.' : 'Sign in with Google to continue.';
+          authGate.style.display = 'flex';
+          overlay.style.display = 'none';
+        }
+      }
+    } catch {}
+  }
+
+  async function checkSession() {
+    try {
+      const r = await fetch('/auth/me');
+      const data = await r.json();
+      if (data.ok && data.user) {
+        if (loginStatus) loginStatus.textContent = (nativeSelect?.value === 'Spanish') ? `Conectado como ${data.user?.name || ''}` : `Signed in as ${data.user?.name || ''}`;
+        if (nameInput && data.user?.name) nameInput.value = data.user.name;
+        if (authGate) authGate.style.display = 'none';
+        if (overlay) overlay.style.display = 'flex';
+        // Toggle profile UI
+        if (userProfile) userProfile.style.display = '';
+        if (nameRow) nameRow.style.display = 'none';
+        if (userName) userName.textContent = data.user?.name || '';
+        if (userAvatar && data.user?.picture) userAvatar.src = data.user.picture;
+        if (logoutBtn) logoutBtn.textContent = (nativeSelect?.value === 'Spanish') ? 'Cerrar sesión' : 'Sign out';
+        if (switchBtn) switchBtn.textContent = (nativeSelect?.value === 'Spanish') ? 'Cambiar de cuenta' : 'Switch account';
+        lastUserEmail = data.user?.email || '';
+      }
+    } catch {}
+  }
+
+  async function handleGoogleCredential(resp) {
+    try {
+      const r = await fetch('/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: resp.credential }) });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || 'Login failed');
+      if (loginStatus) loginStatus.textContent = (nativeSelect?.value === 'Spanish') ? `Conectado como ${data.user?.name || ''}` : `Signed in as ${data.user?.name || ''}`;
+      // Prefill name input
+      if (nameInput && data.user?.name) nameInput.value = data.user.name;
+      if (nameInput) lsSet(LS.name, nameInput.value.trim());
+      if (authGate) authGate.style.display = 'none';
+      if (overlay) overlay.style.display = 'flex';
+      // Toggle profile UI
+      if (userProfile) userProfile.style.display = '';
+      if (nameRow) nameRow.style.display = 'none';
+      if (userName) userName.textContent = data.user?.name || '';
+      if (userAvatar && data.user?.picture) userAvatar.src = data.user.picture;
+      if (logoutBtn) logoutBtn.textContent = (nativeSelect?.value === 'Spanish') ? 'Cerrar sesión' : 'Sign out';
+      if (switchBtn) switchBtn.textContent = (nativeSelect?.value === 'Spanish') ? 'Cambiar de cuenta' : 'Switch account';
+      lastUserEmail = data.user?.email || '';
+    } catch (e) {
+      if (loginStatus) loginStatus.textContent = (nativeSelect?.value === 'Spanish') ? 'Error al iniciar sesión' : 'Login error';
+    }
+  }
+
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => {
+    try {
+      await fetch('/auth/logout', { method: 'POST' });
+    } catch {}
+    // Reset UI to auth gate
+    if (userProfile) userProfile.style.display = 'none';
+    if (nameRow) nameRow.style.display = '';
+    if (userName) userName.textContent = '';
+    if (userAvatar) userAvatar.removeAttribute('src');
+    if (authGate) authGate.style.display = 'flex';
+    if (overlay) overlay.style.display = 'none';
+    if (loginStatus) loginStatus.textContent = (nativeSelect?.value === 'Spanish') ? 'Sesión cerrada' : 'Signed out';
+  });
+
+  if (switchBtn) switchBtn.addEventListener('click', async () => {
+    try { await fetch('/auth/logout', { method: 'POST' }); } catch {}
+    // Ask GIS to forget auto-select and prompt account chooser
+    try {
+      if (window.google?.accounts?.id) {
+        window.google.accounts.id.disableAutoSelect();
+        if (lastUserEmail) {
+          // Revoke consent to ensure account selection next time
+          window.google.accounts.id.revoke(lastUserEmail, () => {});
+        }
+      }
+    } catch {}
+    // Reset UI to gate
+    if (userProfile) userProfile.style.display = 'none';
+    if (nameRow) nameRow.style.display = '';
+    if (userName) userName.textContent = '';
+    if (userAvatar) userAvatar.removeAttribute('src');
+    if (authGate) authGate.style.display = 'flex';
+    if (overlay) overlay.style.display = 'none';
+    if (loginStatus) loginStatus.textContent = (nativeSelect?.value === 'Spanish') ? 'Elige tu cuenta de Google' : 'Choose your Google account';
+    // Optional: display One Tap prompt (if enabled by Google)
+    try { if (window.google?.accounts?.id) window.google.accounts.id.prompt(); } catch {}
+  });
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script'); s.src = src; s.async = true; s.defer = true;
+      s.onload = () => resolve(); s.onerror = reject; document.head.appendChild(s);
+    });
+  }

@@ -4,9 +4,10 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
+import { OAuth2Client } from 'google-auth-library';
 import { createEvaluator } from './lib/evaluator.js';
 import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise, getHints } from './lib/exercise.js';
-import { createStore, historyStore, playgroundStore } from './lib/store.js';
+import { createStore, historyStore, playgroundStore, userStore } from './lib/store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,9 @@ const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT || 3000;
 const DEBUG = process.env.DEBUG === '1' || process.env.DEBUG === 'true';
 const AUTO_SUBSPIN = process.env.AUTO_SUBSPIN === '1' || process.env.AUTO_SUBSPIN === 'true';
+const AUTH_COOKIE = 'sid';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || null;
+const oauthClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const log = (...args) => { if (DEBUG) console.log(new Date().toISOString(), ...args); };
 
 // --- Card system ---
@@ -39,7 +43,83 @@ function randomCard() {
 }
 
 // Serve static client
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, '../web')));
+
+// Public config for client
+app.get('/config.json', (_req, res) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_ID || null });
+});
+
+// Cookie helpers
+function setCookie(res, name, value, opts = {}) {
+  const parts = [`${name}=${value}`];
+  if (opts.maxAge) parts.push(`Max-Age=${Math.floor(opts.maxAge / 1000)}`);
+  parts.push('Path=/');
+  parts.push('SameSite=Lax');
+  if (opts.httpOnly !== false) parts.push('HttpOnly');
+  if (opts.secure) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+function parseCookies(req) {
+  const h = req.headers['cookie'] || '';
+  const out = {};
+  h.split(';').forEach(kv => {
+    const i = kv.indexOf('=');
+    if (i > -1) out[kv.slice(0, i).trim()] = decodeURIComponent(kv.slice(i + 1));
+  });
+  return out;
+}
+
+// Simple in-memory sessions
+const sessions = new Map();
+function makeSession(user) {
+  const id = 's_' + Math.random().toString(36).slice(2, 12);
+  sessions.set(id, { id, user, ts: Date.now() });
+  return id;
+}
+
+// Google login endpoint
+app.post('/auth/google', async (req, res) => {
+  try {
+    if (!oauthClient) return res.status(400).json({ ok: false, error: 'Google login not configured' });
+    const token = String(req.body?.credential || '');
+    if (!token) return res.status(400).json({ ok: false, error: 'Missing credential' });
+    if (DEBUG) console.log('[auth] verifying Google ID token for audience', GOOGLE_CLIENT_ID);
+    const ticket = await oauthClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    const user = {
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name || payload.email || 'User',
+      picture: payload.picture || null,
+    };
+    try { if (ustore?.upsertUser) await ustore.upsertUser(user); } catch {}
+    const sid = makeSession(user);
+    setCookie(res, AUTH_COOKIE, sid, { maxAge: 1000 * 60 * 60 * 24 * 30, secure: !!process.env.RENDER });
+    if (DEBUG) console.log('[auth] login ok for', user.email || user.id);
+    res.json({ ok: true, user: { name: user.name, email: user.email, picture: user.picture } });
+  } catch (e) {
+    if (DEBUG) console.log('[auth] verify error', e?.message || e);
+    res.status(400).json({ ok: false, error: 'Invalid Google credential' });
+  }
+});
+
+app.post('/auth/logout', (req, res) => {
+  const sid = parseCookies(req)[AUTH_COOKIE];
+  if (sid) sessions.delete(sid);
+  setCookie(res, AUTH_COOKIE, 'deleted', { maxAge: 0 });
+  res.json({ ok: true });
+});
+
+app.get('/auth/me', (req, res) => {
+  const sid = parseCookies(req)[AUTH_COOKIE];
+  if (sid && sessions.has(sid)) {
+    const s = sessions.get(sid);
+    return res.json({ ok: true, user: { name: s.user?.name, email: s.user?.email, picture: s.user?.picture } });
+  }
+  return res.json({ ok: false, user: null });
+});
 
 // Basic health route
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
@@ -51,6 +131,7 @@ const exerciseGen = createExerciseGenerator();
 const store = createStore(process.env.DATABASE_URL);
 const hstore = historyStore(process.env.DATABASE_URL);
 const pgstore = playgroundStore(process.env.DATABASE_URL);
+const ustore = userStore(process.env.DATABASE_URL);
 if (store && typeof store.init === 'function') { store.init().catch(() => {}); }
 
 const AUTO_BOT = process.env.AUTO_BOT === '1' || process.env.AUTO_BOT === 'true';
@@ -76,6 +157,9 @@ function makeId(prefix = 'ex') {
 function getPlayer(room, id) {
   return room && room.players ? room.players[id] : null;
 }
+
+// Lightweight synonym suggestions based on prompt context and target language.
+// Removed heuristic synonyms: synonyms are generated dynamically with AI
 
 function analyzeWeaknesses(room) {
   const hist = (room.history || []).filter(h => h.playerId === 'p1').slice(-6);
@@ -118,7 +202,7 @@ function proposePlayground(room, more = false) {
   const chosen = [];
   for (const issue of issues) {
     const pool = templates[issue] || templates.fluency;
-    pool.forEach(t => chosen.push({ id: makeId('pg'), kind: t.kind, title: t.title, prompt: t.prompt }));
+    pool.forEach(t => { chosen.push({ id: makeId('pg'), kind: t.kind, title: t.title, prompt: t.prompt }); });
   }
   // Limit to 3 exercises
   return chosen.slice(0, 3);
@@ -471,9 +555,19 @@ function startCooldown(room) {
   room.cooldownTimer = setTimeout(() => endCooldown(room), durationMs);
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   const player = { id: null, name: null, learningLanguage: 'English', life: 100, ws };
   let room = null;
+
+  // Attach session user if present
+  try {
+    const sid = parseCookies(req)[AUTH_COOKIE];
+    if (sid && sessions.has(sid)) {
+      const s = sessions.get(sid);
+      player.user = s.user;
+      if (!player.name && s.user?.name) player.name = s.user.name;
+    }
+  } catch {}
 
   function send(data) {
     if (ws.readyState === 1) ws.send(JSON.stringify(data));
@@ -712,6 +806,8 @@ wss.on('connection', (ws) => {
       broadcastRoom(room, { type: 'skip_update', players: Object.keys(room.skip) });
       const twoPlayers = Object.keys(room.players).length === 2;
       const bothSkipped = twoPlayers && room.skip.p1 && room.skip.p2;
+      // In single-player, a single skip ends cooldown immediately
+      if (room.mode === 'single' && player.id === 'p1') { endCooldown(room); return; }
       if (bothSkipped) endCooldown(room);
       return;
     }
@@ -774,6 +870,8 @@ wss.on('connection', (ws) => {
       room.playground.exercises = exercises;
       broadcastRoom(room, { type: 'playground_ready', exercises });
       broadcastRoom(room, roomSnapshot(room));
+      // Populate synonyms asynchronously via LLM (if configured)
+      ;(async () => { try { await populatePlaygroundSynonyms(room); } catch {} })();
       return;
     }
 
@@ -782,6 +880,7 @@ wss.on('connection', (ws) => {
       room.playground.exercises = exercises;
       broadcastRoom(room, { type: 'playground_ready', exercises });
       broadcastRoom(room, roomSnapshot(room));
+      ;(async () => { try { await populatePlaygroundSynonyms(room); } catch {} })();
       return;
     }
 
@@ -997,3 +1096,70 @@ function mockExplain({ text, context, nativeLanguage, targetLanguage }) {
   return `Explanation for “${text}”: context term.\nSynonyms (${targetLanguage}): —.\nUsage (${targetLanguage}): …\n(Non-AI fallback)`;
 }
     
+// --- Playground synonyms population via LLM ---
+async function populatePlaygroundSynonyms(room) {
+  try {
+    const exercises = (room.playground?.exercises || []).slice(0);
+    if (!exercises.length) return;
+    const targetLanguage = getPlayer(room, 'p1')?.learningLanguage || 'English';
+    const outputs = [];
+    for (const ex of exercises) {
+      const syns = await generateSynonymsLLM({ prompt: ex.prompt, targetLanguage });
+      outputs.push({ id: ex.id, synonyms: syns });
+      const ref = (room.playground?.exercises || []).find(e => e.id === ex.id);
+      if (ref) ref.synonyms = syns;
+    }
+    if (outputs.length) broadcastRoom(room, { type: 'playground_synonyms', items: outputs });
+  } catch {}
+}
+
+// LLM-based synonym generation helpers
+async function generateSynonymsLLM({ prompt, targetLanguage }) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) return [];
+  const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3.1:free';
+  const system = 'You extract key terms and provide natural, learner-friendly synonyms in the target language. Return ONLY compact JSON.';
+  const user = `Target language: ${targetLanguage}\nPrompt/context: ${prompt}\nInstructions: Identify 2-4 important words or phrases from the prompt and provide 2-3 natural synonyms for each (same target language).\nOutput JSON only: [{"term":"<string>","options":["syn1","syn2"]}]`;
+  try {
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 8000);
+    const res = await withTimeout(_fetch2('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': process.env.OPENROUTER_REFERRER || 'http://localhost',
+        'X-Title': 'Language Duel Synonyms',
+      },
+      body: JSON.stringify({ model, temperature: 0.2, messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ] }),
+      signal: controller.signal,
+    }), timeoutMs, 'Synonyms');
+    if (!res.ok) return [];
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content?.trim() || '';
+    const parsed = parseJsonArray(content);
+    return normalizeSynonyms(parsed);
+  } catch { return []; }
+}
+
+function parseJsonArray(text) {
+  if (!text) return null;
+  let s = String(text).trim();
+  if (s.startsWith('```')) s = s.replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();
+  try { return JSON.parse(s); } catch { /* try to find array */ }
+  const m = s.match(/\[[\s\S]*\]/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
+  return null;
+}
+
+function normalizeSynonyms(parsed) {
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map(x => {
+    const term = typeof x.term === 'string' ? x.term : '';
+    const opts = Array.isArray(x.options) ? x.options.filter(v => typeof v === 'string').slice(0,3) : [];
+    return term ? { term, options: opts } : null;
+  }).filter(Boolean).slice(0, 4);
+}

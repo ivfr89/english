@@ -74,21 +74,30 @@ Este documento resume el estado actual del proyecto, los cambios realizados en e
     - Fallback de prompts ante timeout.
     - Sistema de cartas (grant/use/effects), buffs por ronda y eventos WebSocket: `cards_granted`, `card_used`, `player_silenced`, `card_stolen`, `prompt_updated`, `ai_assist_ready`, `ai_answer`.
     - AI Assist (`generateAIAnswer`) usando OpenRouter.
+    - Single Player (umbral y daño), Playground, Favoritos, Progreso (historial + playground logs), Diccionario contextual.
+    - Persistencia opcional con Neon vía `DATABASE_URL` (favorites/history/playground_logs).
   - `server/lib/exercise.js`
     - Export de `mockExercise` y fallback a mock.
+    - `getHints(topic, subtopic, nativeLanguage)` para pistas.
   - `server/lib/evaluator.js`
     - Evaluación IA o mock según `EVAL_MODE`.
+    - Parseo robusto de JSON y rúbrica con penalizaciones comunes.
+  - `server/lib/store.js`
+    - Store Postgres (pg): `favorites`, `history`, `playground_logs` con inicialización e índices.
 
 - Cliente (web)
   - `web/index.html`
     - Reemplazo de elementos por componentes estilizados (vía shim) y vendor scripts locales.
     - Canvas `#wheelCanvas` + fallback `.wheel`.
+    - Botones: Single Player (con umbral), Diccionario contextual (popup en tu prompt), Playground (desktop/mobile), Progreso en Playground, Guardar nota.
   - `web/main.js`
     - Detección de vendors; build y animación de ruleta; responsividad `ensureWheelSize()`.
     - Control estricto de `disabled` en botón “Girar” (propiedad + atributo) para ambos jugadores.
     - Cartas, toasts, AI Assist y mejoras de status.
+    - Single Player, Playground, Favoritos, Progreso, Diccionario contextual.
   - `web/styles.css`
     - Estilos oscuros, spinner overlay con `max-height`, wheel CSS fallback y botones con mejor estructura.
+    - Ruleta y tipografía adaptadas en móvil; layout de Playground responsive (columnas → stack en ≤700px).
   - `web/vendor/*` (todo local): `sl-shim.css/js`, `winwheel-shim.js`, `toast.css/js`.
 
 - Otros
@@ -100,6 +109,9 @@ Este documento resume el estado actual del proyecto, los cambios realizados en e
 - Entrada
   - `create_room` | `join_room` | `state` | `spin` | `answer` | `skip`
   - Cartas: `use_card { cardId }`, `ai_answer_request`
+  - Diccionario: `explain_selection { text, context, nativeLanguage }`
+  - Single/Playground: `single_start { threshold }`, `enter_playground`, `playground_more`, `playground_submit { answers }`, `playground_progress`, `exit_playground`
+  - Favoritos: `add_favorite_note { text }`, `list_favorites`, `delete_favorite_note { id }`, `start_playground_note { id }`
 - Salida
   - `state` (snapshot general)
   - `turn` (turno + temas/subtemas)
@@ -107,6 +119,8 @@ Este documento resume el estado actual del proyecto, los cambios realizados en e
   - `round_start` → `prompts_ready` → `evaluating` → `round_result` → `cooldown_start`
   - `game_over`, `opponent_disconnected`
   - Cartas: `cards_granted`, `card_used`, `player_silenced`, `card_stolen`, `prompt_updated`, `ai_assist_ready`, `ai_answer`
+  - Diccionario: `explain_result { text, explanation }`
+  - Playground/Favoritos: `playground_ready { exercises }`, `playground_feedback { results }`, `favorites { items }`, `progress_data { history, playground }`
 
 ## Variables de entorno (resumen)
 
@@ -117,6 +131,21 @@ Este documento resume el estado actual del proyecto, los cambios realizados en e
 - `COOLDOWN_MS` (p.ej. 30000)
 - `AUTO_SUBSPIN` (opcional)
 - `DEBUG` = `1` para logs
+ - `DATABASE_URL` (opcional; Postgres Neon para persistencia de favoritos/historial/playground)
+
+## Deploy en Render (blueprint incluido)
+
+- Archivo `render.yaml` añade un servicio Node (free) con healthcheck `/healthz`.
+- Env vars mínimas:
+  - `OPENROUTER_API_KEY` (si usas IA real) y `OPENROUTER_REFERRER=https://<tu-app>.onrender.com`.
+  - `EVAL_MODE=openrouter` (o `mock` sin red)
+  - `DATABASE_URL` (Neon Postgres) para persistencia — si se omite, hay fallback en memoria.
+
+## UX móvil
+
+- Ruleta más pequeña y textos adaptativos.
+- En multi, botón para alternar vista “Ver oponente / Ver tu vista” en ≤700px.
+- Playground responsive: columnas → stack, overlay con scroll y botones visibles.
 
 ## Debug y pruebas
 
@@ -147,3 +176,30 @@ Si retomas el proyecto y algo no encaja (ruleta gigante o botón “Girar” des
 - Que las variables en `.env` están como esperas.
 
 Cualquier duda futura, retomo desde aquí sin perder contexto.
+6) Evaluador más consistente y tolerante
+- El evaluador ahora acepta JSON con fences o texto extra (intenta extraer el objeto). Si falla el parseo o la llamada, hace fallback a un heurístico justo (no 0 salvo respuesta vacía) y añade nota en feedback.
+- Se definió rúbrica con pesos: Gramática/Ortografía (40), Colocaciones (20), Coherencia/Fluidez (20), Cumplimiento/Tono (20). Penalizaciones típicas: “buy to you” → “buy you…”, “neccesary” → “necessary”, capitalización de “I”, etc.
+
+7) Single Player (nuevo) con supervivencia
+- Botón “Single Player” en overlay inicial. Se define un umbral (p. ej. 70). Por cada ronda: si tu score < umbral, pierdes 10 de vida. Objetivo: sobrevivir lo máximo.
+- Flujo de ruleta se mantiene (Tema → Subtema). Siempre tu turno. Panel del oponente oculto en single y, en móvil, alternancia de vistas en multi.
+- Spinner y overlay adaptados a móvil (ruleta y tipografía más pequeñas), botón para alternar vista del oponente en ≤700px.
+
+8) Pistas nativas y diccionario contextual
+- Pistas (hints) en el idioma nativo del jugador bajo su prompt.
+- Diccionario: selecciona texto en tu prompt → botón “Entender” → explicación en nativo, sinónimos y ejemplo de uso en el idioma que aprendes. Incluye loader y panel discreto.
+
+9) Playground (single-player)
+- Botón “Ir a playground” (desktop y móvil). Pausa la partida y abre overlay con ejercicios propuestos según debilidades detectadas en tu historial reciente (preposiciones, ortografía, capitalización, artículos, tiempos, fluidez).
+- Acciones: “Enviar” (evalúa y da feedback), “Más ejercicios” (regenera según debilidades o nota), “Salir del playground” (reanuda partida). Soporta salir con Esc y el overlay es scrollable.
+- Progreso: botón “Ver progreso” muestra historial reciente de rondas y ejercicios de Playground.
+
+10) Favoritos / Notas de estudio (nuevo)
+- “⭐ Guardar nota” bajo el prompt (guarda selección o prompt completo). En el Playground puedes añadir notas manuales en “Favoritos”.
+- Desde “Favoritos” puedes “Practicar” (genera ejercicios basados en la nota) o “Eliminar”.
+
+11) Persistencia con Neon (Postgres) + fallback en memoria
+- Tabla `favorites`: notas de estudio (id, room_code, player_id, text, created_at).
+- Tabla `history`: historial de rondas (prompt, answer, score, feedback, corrections, language, round, timestamps).
+- Tabla `playground_logs`: resultados de ejercicios de Playground.
+- Si `DATABASE_URL` está configurada, se persiste en Neon; si no, se usa almacenamiento en memoria por sala.

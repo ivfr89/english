@@ -1,9 +1,16 @@
 import { Pool } from 'pg';
 import crypto from 'node:crypto';
 
+function createPool(databaseUrl) {
+  // Use SSL only if explicitly requested (good for cloud DBs). Local PG usually needs ssl: false
+  const wantSSL = /sslmode=require/i.test(databaseUrl) || process.env.PGSSL === '1' || process.env.PGSSLMODE === 'require';
+  const ssl = wantSSL ? { rejectUnauthorized: false } : false;
+  return new Pool({ connectionString: databaseUrl, ssl });
+}
+
 export function createStore(databaseUrl) {
   if (!databaseUrl) return null;
-  const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+  const pool = createPool(databaseUrl);
 
   async function init() {
     await pool.query(`
@@ -44,6 +51,14 @@ export function createStore(databaseUrl) {
         created_at TIMESTAMPTZ DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS idx_pg_room_player ON playground_logs(room_code, player_id, created_at);
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT,
+        name TEXT,
+        picture TEXT,
+        created_at TIMESTAMPTZ DEFAULT now()
+      );
     `);
   }
 
@@ -74,7 +89,7 @@ export function createStore(databaseUrl) {
 
 export function historyStore(databaseUrl) {
   if (!databaseUrl) return null;
-  const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+  const pool = createPool(databaseUrl);
   function makeId() { return crypto.randomUUID ? crypto.randomUUID() : ('h_' + Math.random().toString(36).slice(2, 10)); }
   async function addHistoryBulk(items) {
     const text = `INSERT INTO history (id, room_code, player_id, round, prompt, answer, score, feedback, corrections, language)
@@ -100,7 +115,7 @@ export function historyStore(databaseUrl) {
 
 export function playgroundStore(databaseUrl) {
   if (!databaseUrl) return null;
-  const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+  const pool = createPool(databaseUrl);
   function makeId() { return crypto.randomUUID ? crypto.randomUUID() : ('pg_' + Math.random().toString(36).slice(2, 10)); }
   async function logResults(roomCode, playerId, items) {
     const text = `INSERT INTO playground_logs (id, room_code, player_id, kind, prompt, answer, score, feedback, corrections)
@@ -122,4 +137,22 @@ export function playgroundStore(databaseUrl) {
     return res.rows || [];
   }
   return { logResults, listRecent };
+}
+
+// Optional user upsert used by Google login
+export function userStore(databaseUrl) {
+  if (!databaseUrl) return null;
+  const pool = createPool(databaseUrl);
+  async function upsertUser({ id, email, name, picture }) {
+    await pool.query(`
+      INSERT INTO users (id, email, name, picture)
+      VALUES ($1,$2,$3,$4)
+      ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
+    `, [id, email || null, name || null, picture || null]);
+  }
+  async function getUser(id) {
+    const r = await pool.query(`SELECT id, email, name, picture FROM users WHERE id=$1`, [id]);
+    return r.rows?.[0] || null;
+  }
+  return { upsertUser, getUser };
 }
