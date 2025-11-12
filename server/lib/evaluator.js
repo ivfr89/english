@@ -51,7 +51,7 @@ async function openrouterEvaluate({ prompt, answer, targetLanguage }) {
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: `Target language: ${targetLanguage}\nPrompt (may include Context/Thread/Transcript; the Context may be in the learner's native language):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
     ],
-    temperature: 0.2,
+    temperature: 0.2
   };
   const controller = new AbortController();
   const timeoutMs = Number(process.env.EVAL_TIMEOUT_MS || 60000);

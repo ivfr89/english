@@ -126,6 +126,8 @@ input, select { background: #0a0f1c; border: 1px solid #223; color: var(--text);
 .pointer { position: absolute; top: -8px; font-size: 24px; color: #fcd34d; }
 .legend { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; margin-top: 12px; font-size: 14px; color: #cbd5e1; }
 .legend-item { display: flex; align-items: center; gap: 6px; background: #0a0f1c; border: 1px solid #223; border-radius: 6px; padding: 4px 6px; }
+.legend-item.clickable { cursor: pointer; border-color: #334155; }
+.legend-item.clickable:hover { background: #0f172a; }
 .legend .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.2); }
 .legend .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

@@ -14,6 +14,106 @@ export const TOPICS = [
     ],
   },
   {
+    key: 'health-wellness',
+    labels: { English: 'Health & wellness', Spanish: 'Salud y bienestar' },
+    subs: [
+      { key: 'doctor', labels: { English: 'Doctor visit', Spanish: 'Visita al médico' } },
+      { key: 'fitness', labels: { English: 'Fitness goals', Spanish: 'Objetivos de ejercicio' } },
+      { key: 'nutrition', labels: { English: 'Nutrition', Spanish: 'Nutrición' } },
+      { key: 'stress', labels: { English: 'Stress management', Spanish: 'Manejo del estrés' } },
+    ],
+  },
+  {
+    key: 'education',
+    labels: { English: 'Education', Spanish: 'Educación' },
+    subs: [
+      { key: 'school', labels: { English: 'School life', Spanish: 'Vida escolar' } },
+      { key: 'university', labels: { English: 'University', Spanish: 'Universidad' } },
+      { key: 'online', labels: { English: 'Online course', Spanish: 'Curso online' } },
+      { key: 'exam', labels: { English: 'Exams', Spanish: 'Exámenes' } },
+    ],
+  },
+  {
+    key: 'technology',
+    labels: { English: 'Technology', Spanish: 'Tecnología' },
+    subs: [
+      { key: 'gadgets', labels: { English: 'Gadgets', Spanish: 'Dispositivos' } },
+      { key: 'apps', labels: { English: 'Apps', Spanish: 'Aplicaciones' } },
+      { key: 'privacy', labels: { English: 'Privacy', Spanish: 'Privacidad' } },
+      { key: 'ai', labels: { English: 'AI & tools', Spanish: 'IA y herramientas' } },
+    ],
+  },
+  {
+    key: 'shopping',
+    labels: { English: 'Shopping', Spanish: 'Compras' },
+    subs: [
+      { key: 'groceries', labels: { English: 'Groceries', Spanish: 'Supermercado' } },
+      { key: 'clothes', labels: { English: 'Clothes', Spanish: 'Ropa' } },
+      { key: 'electronics', labels: { English: 'Electronics', Spanish: 'Electrónica' } },
+      { key: 'returns', labels: { English: 'Returns', Spanish: 'Devoluciones' } },
+    ],
+  },
+  {
+    key: 'sports',
+    labels: { English: 'Sports', Spanish: 'Deportes' },
+    subs: [
+      { key: 'football', labels: { English: 'Football/Soccer', Spanish: 'Fútbol' } },
+      { key: 'gym', labels: { English: 'Gym & training', Spanish: 'Gimnasio y entrenamiento' } },
+      { key: 'outdoor', labels: { English: 'Outdoor', Spanish: 'Aire libre' } },
+      { key: 'injury', labels: { English: 'Injuries', Spanish: 'Lesiones' } },
+    ],
+  },
+  {
+    key: 'entertainment',
+    labels: { English: 'Entertainment', Spanish: 'Entretenimiento' },
+    subs: [
+      { key: 'movies', labels: { English: 'Movies/Series', Spanish: 'Cine/Series' } },
+      { key: 'music', labels: { English: 'Music', Spanish: 'Música' } },
+      { key: 'gaming', labels: { English: 'Gaming', Spanish: 'Videojuegos' } },
+      { key: 'events', labels: { English: 'Events', Spanish: 'Eventos' } },
+    ],
+  },
+  {
+    key: 'family',
+    labels: { English: 'Family & friends', Spanish: 'Familia y amigos' },
+    subs: [
+      { key: 'plans', labels: { English: 'Plans', Spanish: 'Planes' } },
+      { key: 'celebrations', labels: { English: 'Celebrations', Spanish: 'Celebraciones' } },
+      { key: 'conflicts', labels: { English: 'Conflicts', Spanish: 'Conflictos' } },
+      { key: 'support', labels: { English: 'Support', Spanish: 'Apoyo' } },
+    ],
+  },
+  {
+    key: 'daily-life',
+    labels: { English: 'Daily life', Spanish: 'Vida diaria' },
+    subs: [
+      { key: 'chores', labels: { English: 'Chores', Spanish: 'Tareas del hogar' } },
+      { key: 'transport', labels: { English: 'Transport', Spanish: 'Transporte' } },
+      { key: 'errands', labels: { English: 'Errands', Spanish: 'Gestiones' } },
+      { key: 'schedule', labels: { English: 'Schedule', Spanish: 'Agenda' } },
+    ],
+  },
+  {
+    key: 'food-cooking',
+    labels: { English: 'Food & cooking', Spanish: 'Comida y cocina' },
+    subs: [
+      { key: 'recipes', labels: { English: 'Recipes', Spanish: 'Recetas' } },
+      { key: 'restaurants', labels: { English: 'Restaurants', Spanish: 'Restaurantes' } },
+      { key: 'preferences', labels: { English: 'Preferences', Spanish: 'Preferencias' } },
+      { key: 'allergies', labels: { English: 'Allergies', Spanish: 'Alergias' } },
+    ],
+  },
+  {
+    key: 'finance',
+    labels: { English: 'Finance', Spanish: 'Finanzas' },
+    subs: [
+      { key: 'banking', labels: { English: 'Banking', Spanish: 'Banca' } },
+      { key: 'budgeting', labels: { English: 'Budgeting', Spanish: 'Presupuesto' } },
+      { key: 'investing', labels: { English: 'Investing', Spanish: 'Inversión' } },
+      { key: 'taxes', labels: { English: 'Taxes', Spanish: 'Impuestos' } },
+    ],
+  },
+  {
     key: 'customer-support',
     labels: { English: 'Customer support', Spanish: 'Atención al cliente' },
     subs: [
@@ -340,6 +440,29 @@ function mockExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage })
   return `${withSub}${suffix}`;
 }
 
+function sanitizeRawExerciseContent(raw) {
+  let s = String(raw || '');
+  // Keep any Ideal answers section for parsing later
+  const mIdeals = s.match(/\n\s*Ideal answers?:/i);
+  const idxIdeals = mIdeals ? mIdeals.index : -1;
+  const head = idxIdeals >= 0 ? s.slice(0, idxIdeals) : s;
+  const tail = idxIdeals >= 0 ? s.slice(idxIdeals) : '';
+  // Redact ONLY the learner's line content, keep the rest of conversation
+  const lines = head.split(/\n/);
+  const learnerRe = /^\s*(Guest|B|@(?:T[úu]|You))\s*:\s*(.*)$/i;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(learnerRe);
+    if (!m) continue;
+    const prefix = m[1];
+    const content = (m[2] || '').trim();
+    const isPlaceholder = /\(.*continue.*\)|\(.*escribe.*\)|\(.*continuar.*\)/i.test(content) || content === '';
+    if (!isPlaceholder) {
+      lines[i] = `${prefix}: (continue with your answer)`;
+    }
+  }
+  return lines.join('\n') + (tail ? '\n' + tail : '');
+}
+
 function parsePromptAndIdeals(text) {
   const s = String(text || '');
   const parts = s.split(/\n\s*Ideal answers?:/i);
@@ -358,7 +481,8 @@ function parsePromptAndIdeals(text) {
 
 export function createExerciseGenerator() {
   async function generatePrompt({ topicKey, subtopicKey, targetLanguage = 'English', nativeLanguage = 'Spanish', difficulty }) {
-    const raw = await openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty });
+    let raw = await openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty });
+    raw = sanitizeRawExerciseContent(raw);
     const parsed = parsePromptAndIdeals(raw);
     return { ...parsed, source: 'ai' };
   }

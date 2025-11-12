@@ -746,11 +746,26 @@
 
   function renderLegend() {
     if (!Array.isArray(topics) || topics.length === 0) { topicLegend.innerHTML = ''; return; }
+    const single = gameMode === 'single';
     topicLegend.innerHTML = topics.map((t, i) => `
-      <div class="legend-item">
+      <div class="legend-item${single ? ' clickable' : ''}" data-key="${escapeHTML(t.key)}">
         <span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
         <span class="label">${escapeHTML(localizeTopic(t.key))}</span>
       </div>`).join('');
+    if (single) {
+      // Allow selecting topic/subtopic via legend chips when single-player
+      topicLegend.querySelectorAll('.legend-item.clickable').forEach((el) => {
+        el.addEventListener('click', () => {
+          const key = el.getAttribute('data-key');
+          if (!key) return;
+          if (stage === 'topic') {
+            send({ type: 'choose_topic', topicKey: key });
+          } else if (stage === 'subtopic') {
+            send({ type: 'choose_subtopic', subtopicKey: key });
+          }
+        });
+      });
+    }
   }
 
   function buildWheel() {

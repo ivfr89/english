@@ -870,6 +870,36 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    // Single-player: allow choosing topic/subtopic via chips
+    if (msg.type === 'choose_topic' && room && player.id) {
+      if (room.mode !== 'single') return;
+      if (room.status !== 'waiting_spin' || room.stage !== 'topic') return;
+      if (room.turn !== player.id) return;
+      const topicKey = String(msg.topicKey || '');
+      const ok = TOPICS.find(t => t.key === topicKey);
+      if (!ok) return;
+      room.lastCategory = topicKey;
+      room.status = 'waiting_subspin';
+      room.stage = 'subtopic';
+      const subs = getSubtopics(topicKey);
+      broadcastRoom(room, { type: 'turn', playerId: room.turn, topics: subs, stage: 'subtopic' });
+      broadcastRoom(room, roomSnapshot(room));
+      return;
+    }
+    if (msg.type === 'choose_subtopic' && room && player.id) {
+      if (room.mode !== 'single') return;
+      if (room.status !== 'waiting_subspin' || room.stage !== 'subtopic') return;
+      if (room.turn !== player.id) return;
+      const subs = getSubtopics(room.lastCategory) || [];
+      const key = String(msg.subtopicKey || '');
+      const sub = subs.find(s => s.key === key);
+      if (!sub) return;
+      room.status = 'generating';
+      room.lastSubtopic = sub.key;
+      startRound(room, room.lastCategory, room.lastSubtopic);
+      return;
+    }
+
     if (msg.type === 'state') {
       if (room) send(roomSnapshot(room));
       return;
