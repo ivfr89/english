@@ -203,3 +203,31 @@ Cualquier duda futura, retomo desde aquí sin perder contexto.
 - Tabla `history`: historial de rondas (prompt, answer, score, feedback, corrections, language, round, timestamps).
 - Tabla `playground_logs`: resultados de ejercicios de Playground.
 - Si `DATABASE_URL` está configurada, se persiste en Neon; si no, se usa almacenamiento en memoria por sala.
+
+## Resumen de la sesión (guardado)
+
+Fecha: 2025-11-12
+
+- Login con Google
+  - Gate inicial que exige login y muestra avatar/nombre, “Cambiar de cuenta” y “Cerrar sesión”.
+  - Endpoints `/auth/google`, `/auth/me`, `/auth/logout`; cookie HttpOnly. Diagnóstico visible si el botón falla (origen no permitido/Client ID).
+
+- Playground y flujo
+  - Arreglado “cerrar y reabrir”: servidor ignora reentradas y sale a `waiting_spin`; cliente ignora `playground_ready` rezagados.
+  - Botones clave migrados a HTML nativo con handlers explícitos: Enviar (con loader), Más ejercicios, Salir, Añadir a favoritos. Salir funciona incluso durante evaluación.
+  - Overlays en header: “⭐ Favoritos” y “📈 Progreso”.
+
+- Persistencia por usuario
+  - `favorites`, `history` y `playground_logs` guardan `user_id` (Google). Fallback a datos “legados” por sala/jugador al listar favoritos. Migraciones automáticas en arranque.
+
+- Your Prompt y móvil
+  - Submit robusto (botón nativo + handler); “⭐ Guardar nota” estable.
+  - Botón “💡 Entender”: en desktop usa selección; en Android/iOS ofrece input inline si no hay selección (evita el menú del sistema) y muestra el panel de explicación.
+
+- Notas técnicas
+  - Reubicadas referencias dentro del IIFE de `web/main.js` para evitar errores “before initialization”.
+  - Reemplazo de `sl-button` por `<button>` en acciones críticas para evitar quirks del shim.
+
+- Próximos pasos sugeridos
+  - Badge de conteo en “⭐ Favoritos”; filtros por idioma/fecha en “📈 Progreso”.
+  - Opción de migrar favoritos legados a `user_id` al iniciar sesión.

@@ -115,7 +115,7 @@
           <h3>Your Prompt</h3>
           <p id="yourPrompt">Waiting...</p>
           <p id="yourHint" class="hint" style="display:none"></p>
-          <div class="row" style="margin-top:6px; gap:6px; flex-wrap:wrap">
+          <div class="row prompt-toolbar" style="margin-top:6px; gap:6px; flex-wrap:wrap">
             <button id="addFavBtn" class="btn btn-neutral btn-small" onclick="_addFavMain()">⭐ Guardar nota</button>
             <button id="dictExplainBtn" class="btn btn-neutral btn-small" onclick="_dictExplain()">💡 Entender</button>
             <input id="dictText" type="text" placeholder="Texto a explicar…" style="display:none; min-width:180px" />
@@ -128,8 +128,8 @@
           </div>
         </div>
         <textarea id="yourAnswer" rows="6" placeholder="Write your answer..."></textarea>
-        <div class="row split">
-          <button id="submit" class="btn btn-primary" onclick="_submitAnswer()">Submit</button>
+        <div class="submit-bar row split">
+          <button id="submit" class="btn btn-primary">Submit</button>
           <button id="aiAssistBtn" class="btn btn-neutral" disabled>AI Assist</button>
         </div>
         <div class="feedback">

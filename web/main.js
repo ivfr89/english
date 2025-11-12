@@ -259,13 +259,8 @@
     send({ type: 'explain_selection', text: text.slice(0,160), context, nativeLanguage });
   };
 
-  window._submitAnswer = () => {
-    const text = yourAnswer.value.trim();
-    if (!text) return;
-    send({ type: 'answer', text });
-    submit.disabled = true;
-    info.textContent = 'Waiting for opponent...';
-  };
+  // Single submit code path via button click; keep this as a proxy
+  // Deprecated helper removed; use button click handler only
 
   function send(obj) { ws.send(JSON.stringify(obj)); }
 

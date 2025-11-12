@@ -87,3 +87,9 @@ This app uses WebSockets. Choose a host that supports long-lived WebSocket conne
 - Ranking and ELO per player
 - Per-skill modes (grammar-only, vocabulary-only)
 - Spectator mode and replays
+
+## UI Notes
+
+- The answer submit bar stays sticky at the bottom of the left panel to prevent overlaps as content grows between rounds.
+- Prompt actions (Guardar nota / Entender) are grouped in a single toolbar inside the prompt box; on mobile they wrap gracefully.
+- Panels are scrollable when content exceeds the viewport, keeping controls accessible.
