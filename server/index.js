@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { OAuth2Client } from 'google-auth-library';
 import { createEvaluator } from './lib/evaluator.js';
-import { createExerciseGenerator, getSubtopics, TOPICS, mockExercise, getHints } from './lib/exercise.js';
+import { createExerciseGenerator, getSubtopics, TOPICS, getHints } from './lib/exercise.js';
 import { createStore, historyStore, playgroundStore, userStore } from './lib/store.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -128,6 +128,10 @@ app.get('/healthz', (_req, res) => res.json({ ok: true }));
 const rooms = new Map();
 const evaluator = createEvaluator();
 const exerciseGen = createExerciseGenerator();
+if (DEBUG) {
+  const genMode = process.env.EVAL_MODE || (process.env.OPENROUTER_API_KEY ? 'openrouter' : 'mock');
+  console.log('[startup] evaluator mode:', evaluator.mode, 'exercise mode:', genMode, 'model:', process.env.OPENROUTER_MODEL || 'default');
+}
 const store = createStore(process.env.DATABASE_URL);
 const hstore = historyStore(process.env.DATABASE_URL);
 const pgstore = playgroundStore(process.env.DATABASE_URL);
@@ -347,6 +351,11 @@ function startRound(room, categoryKey, subtopicKey) {
   for (const pid of Object.keys(room.players)) {
     room.players[pid].aiAssistReady = false;
   }
+  // In single-player, enable AI Assist by default for P1
+  if (room.mode === 'single' && room.players.p1) {
+    room.players.p1.aiAssistReady = true;
+    broadcastRoom(room, { type: 'ai_assist_ready', playerId: 'p1' });
+  }
 
   // Every 3 rounds, grant a random card to each player
   if (room.round % 3 === 0) {
@@ -360,6 +369,7 @@ function startRound(room, categoryKey, subtopicKey) {
   }
 
   const prompts = {};
+  const ideals = {};
   const hints = {};
   for (const pid of Object.keys(room.players)) {
     const player = room.players[pid];
@@ -370,53 +380,59 @@ function startRound(room, categoryKey, subtopicKey) {
     } catch { hints[pid] = null; }
   }
   room.prompts = prompts;
+  room.ideals = ideals;
   room.hints = hints;
   broadcastRoom(room, { type: 'round_start', round: room.round, category: room.lastCategory, subtopic: room.lastSubtopic });
   // Generate prompts asynchronously and then broadcast when ready,
   // with a safety fallback to avoid indefinite waiting.
   let sent = false;
-  const safetyMs = Number(process.env.PROMPT_FALLBACK_MS || 9000);
+  const genMs = Number(process.env.GEN_TIMEOUT_MS || 180000);
+  const retries = Math.max(1, Math.min(3, Number(process.env.GEN_RETRIES || 3)));
+  const safetyMs = Number(process.env.PROMPT_FALLBACK_MS || (genMs * retries + 15000));
 
-  const finishAndBroadcast = (entries) => {
+  const finishAndBroadcast = (entries, sources = {}, times = {}) => {
     if (sent) return;
     for (const [pid, prompt] of entries) {
       room.prompts[pid] = prompt;
     }
     sent = true;
-    broadcastRoom(room, { type: 'prompts_ready', round: room.round, prompts: room.prompts, hints: room.hints || {}, category: room.lastCategory, subtopic: room.lastSubtopic });
+    broadcastRoom(room, { type: 'prompts_ready', round: room.round, prompts: room.prompts, hints: room.hints || {}, category: room.lastCategory, subtopic: room.lastSubtopic, promptSources: sources, promptTimes: times });
     broadcastRoom(room, roomSnapshot(room));
     log('[round] prompts_ready', { room: room.code, round: room.round });
     if (hasBot(room)) simulateBotAnswer(room);
   };
 
   const safetyTimer = setTimeout(() => {
-    try {
-      log('[round] safety_fallback', { room: room.code, round: room.round });
-      const entries = Object.keys(room.players).map((pid) => {
-        const player = room.players[pid];
-        const prompt = room.prompts[pid] || mockExercise({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage });
-        return [pid, prompt];
-      });
-      finishAndBroadcast(entries);
-    } catch {}
+    // Soft-timeout: keep waiting for IA result but notify the client
+    // Do NOT reset to waiting_spin; avoid showing the spinner again
+    log('[round] generation_timeout_soft', { room: room.code, round: room.round });
+    broadcastRoom(room, { type: 'error', error: 'Generating prompt is taking longer than usual…' });
   }, safetyMs);
 
   Promise.all(Object.keys(room.players).map(async (pid) => {
+    const tStart = Date.now();
     const player = room.players[pid];
-    const prompt = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage });
-    return [pid, prompt];
-  })).then((entries) => {
+    try {
+      const { prompt, ideals, source } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage, nativeLanguage: player.nativeLanguage });
+      return { pid, prompt, ideals, source: source === 'ai' ? 'ai' : 'mock', ms: Date.now() - tStart };
+    } catch (e) {
+      throw e;
+    }
+  })).then((results) => {
     clearTimeout(safetyTimer);
-    finishAndBroadcast(entries);
-  }).catch(() => {
+    const flat = results.map(r => [r.pid, r.prompt]);
+    results.forEach(r => { try { room.ideals[r.pid] = Array.isArray(r.ideals) ? r.ideals : []; } catch {} });
+    const sources = Object.fromEntries(results.map(r => [r.pid, r.source]));
+    const times = Object.fromEntries(results.map(r => [r.pid, r.ms]));
+    finishAndBroadcast(flat, sources, times);
+  }).catch((e) => {
     clearTimeout(safetyTimer);
-    log('[round] generate_prompt_error_fallback', { room: room.code, round: room.round });
-    const entries = Object.keys(room.players).map((pid) => {
-      const player = room.players[pid];
-      const prompt = mockExercise({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage });
-      return [pid, prompt];
-    });
-    finishAndBroadcast(entries);
+    log('[round] generate_prompt_failed', { room: room.code, round: room.round, error: e?.message || String(e) });
+    broadcastRoom(room, { type: 'error', error: 'Prompt generation failed. Please spin again.' });
+    room.status = 'waiting_spin';
+    room.stage = 'topic';
+    broadcastRoom(room, { type: 'turn', playerId: room.turn, topics: TOPICS, stage: 'topic' });
+    broadcastRoom(room, roomSnapshot(room));
   });
 }
 
@@ -477,7 +493,7 @@ async function maybeResolveRound(room) {
     room.players[p2].life = Math.max(0, room.players[p2].life - damageFromP1);
     room.players[p1].life = Math.max(0, room.players[p1].life - damageFromP2);
     over = room.players[p1].life <= 0 || room.players[p2].life <= 0;
-    room.lastResults = { results, damage: { [p1]: damageFromP2, [p2]: damageFromP1 } };
+    room.lastResults = { results, damage: { [p1]: damageFromP2, [p2]: damageFromP1 }, ideals: room.ideals || {} };
   } else {
     // Single: lose 10 HP if score < threshold
     const threshold = Number(room.threshold) || 70;
@@ -485,7 +501,7 @@ async function maybeResolveRound(room) {
     const before = room.players.p1.life;
     room.players.p1.life = Math.max(0, before - dmg);
     over = room.players.p1.life <= 0;
-    room.lastResults = { results, damage: { p1: dmg } };
+    room.lastResults = { results, damage: { p1: dmg }, ideals: room.ideals || {} };
   }
 
   // Append to room history + persist
@@ -503,6 +519,7 @@ async function maybeResolveRound(room) {
       feedback: results[pid]?.feedback || '',
       corrections: results[pid]?.corrections || null,
       language: room.players[pid]?.learningLanguage || '',
+      ideals: Array.isArray(room.ideals?.[pid]) ? room.ideals[pid] : [],
     };
     room.history.push(item);
     histItems.push({ roomCode: room.code, playerId: pid, ...item });
@@ -548,7 +565,7 @@ function endCooldown(room) {
 function startCooldown(room) {
   room.status = 'cooldown';
   room.skip = {};
-  const durationMs = Number(process.env.COOLDOWN_MS || 30000);
+  const durationMs = Number(process.env.COOLDOWN_MS || 180000);
   room.cooldownEndsAt = Date.now() + durationMs;
   broadcastRoom(room, { type: 'cooldown_start', endsAt: room.cooldownEndsAt, seconds: Math.ceil(durationMs / 1000) });
   broadcastRoom(room, roomSnapshot(room));
@@ -756,15 +773,13 @@ wss.on('connection', (ws, req) => {
         const targetLang = room.players[pid].learningLanguage || 'English';
         log('[cards] reroll_prompt', { room: room.code, playerId: pid });
         try {
-          const newPrompt = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: targetLang });
+          const { prompt: newPrompt, ideals: sols } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: targetLang, nativeLanguage: room.players[pid].nativeLanguage || 'Spanish' });
           room.prompts[pid] = newPrompt;
+          room.ideals[pid] = Array.isArray(sols) ? sols : [];
           broadcastRoom(room, { type: 'prompt_updated', playerId: pid, prompt: newPrompt });
           broadcastRoom(room, roomSnapshot(room));
         } catch {
-          const fallback = mockExercise({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: targetLang });
-          room.prompts[pid] = fallback;
-          broadcastRoom(room, { type: 'prompt_updated', playerId: pid, prompt: fallback });
-          broadcastRoom(room, roomSnapshot(room));
+          broadcastRoom(room, { type: 'error', error: 'Prompt reroll failed. Try again.' });
         }
       } else if (card.type === 'ai_assist') {
         room.players[pid].aiAssistReady = true;
@@ -790,10 +805,9 @@ wss.on('connection', (ws, req) => {
         room.players[pid].aiAssistReady = false;
         broadcastRoom(room, { type: 'ai_answer', playerId: pid, text });
         broadcastRoom(room, roomSnapshot(room));
-      } catch {
-        const text = mockAIAnswer({ prompt, targetLanguage: lang });
+      } catch (e) {
         room.players[pid].aiAssistReady = false;
-        broadcastRoom(room, { type: 'ai_answer', playerId: pid, text });
+        broadcastRoom(room, { type: 'error', error: 'AI Assist failed. Try again.' });
         broadcastRoom(room, roomSnapshot(room));
       }
       return;
@@ -1042,7 +1056,7 @@ async function generateAIAnswer({ prompt, targetLanguage }) {
   const system = 'You craft an excellent, natural reply in the target language for the given conversational prompt. Keep it concise (3-5 lines), coherent, and appropriate. Return only the reply text.';
   const user = `Target language: ${targetLanguage}\nPrompt: ${prompt}\nWrite the reply as if you were the learner.`;
   const controller = new AbortController();
-  const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 8000);
+  const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 60000);
   const res = await withTimeout(_fetch2('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1080,7 +1094,7 @@ async function generateExplanation({ text, context, nativeLanguage, targetLangua
   const system = 'You are a concise, context-aware explainer. Return a clear explanation IN THE USER\'S NATIVE LANGUAGE. Also include: 2–4 synonyms IN THE LEARNING LANGUAGE, and ONE short usage example sentence IN THE LEARNING LANGUAGE. Keep it under 6 lines.';
   const user = `Native language: ${nativeLanguage}\nLearning language: ${targetLanguage}\nSelected text: ${text}\nFull context: ${context}\nExplain the selected text considering the context.\n- First: meaning in context in ${nativeLanguage} (and translation if helpful).\n- Then: 2–4 synonyms in ${targetLanguage}.\n- Then: one short usage example in ${targetLanguage}.`;
   const controller = new AbortController();
-  const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 8000);
+  const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 60000);
   const res = await withTimeout(_fetch2('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {

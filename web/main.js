@@ -416,6 +416,16 @@
       if (yourHint) { if (myHint) { yourHint.style.display = ''; yourHint.textContent = myHint; } else { yourHint.style.display = 'none'; yourHint.textContent = ''; } }
       if (oppHint) { if (oHint) { oppHint.style.display = ''; oppHint.textContent = oHint; } else { oppHint.style.display = 'none'; oppHint.textContent = ''; } }
       info.textContent = `¡Listo! ${msg.subtopic ? 'Subtema' : 'Tema'}: ${localizeTopic(msg.category)}${msg.subtopic ? ' • ' + localizeTopic(msg.subtopic) : ''}. Responde para atacar.`;
+      const src = (msg.promptSources && msg.promptSources[playerId]) || null;
+      const ms = (msg.promptTimes && typeof msg.promptTimes[playerId] === 'number') ? msg.promptTimes[playerId] : null;
+      if (src) {
+        const tag = src === 'ai' ? 'IA' : 'Mock';
+        let t = '';
+        if (typeof ms === 'number' && ms > 0) {
+          t = ms < 1000 ? ` ${ms}ms` : ` ${(ms/1000).toFixed(1)}s`;
+        }
+        info.textContent += ` (${tag}${t})`;
+      }
       submit.disabled = false;
       // aiAssistBtn may be enabled if a card was played
       spinnerOverlay.style.display = 'none';
@@ -459,13 +469,16 @@
       if (!pgProgressBox && !(progressOverlay && progressOverlay.style.display !== 'none' && progressList)) return;
       const hist = msg.history || [];
       const pgs = msg.playground || [];
-      const histHtml = hist.map((h) => `
-        <div class="pg-prog-item">
+      const histHtml = hist.map((h) => {
+        const ideals = Array.isArray(h.ideals) && h.ideals.length ? `\\n\\nIdeal answers:\\n- ${h.ideals.map(escapeHTML).join('\\n- ')}` : '';
+        return `
+        <div class=\"pg-prog-item\">
           <h5>Ronda ${h.round} • ${escapeHTML(h.language || '')} • Score ${h.score}</h5>
-          <div class="muted">${escapeHTML(h.prompt || '')}</div>
-          <div style=\"margin-top:4px\">${escapeHTML(h.feedback || '')}${h.corrections ? `\\n${escapeHTML(h.corrections)}` : ''}</div>
-        </div>
-      `).join('');
+          <div class=\"muted\">${escapeHTML(h.prompt || '')}</div>
+          <pre style=\"margin-top:4px\"><strong>Tu respuesta:</strong>\n${escapeHTML(h.answer || '')}</pre>
+          <pre style=\"margin-top:4px\">${escapeHTML(h.feedback || '')}${h.corrections ? `\\n${escapeHTML(h.corrections)}` : ''}${ideals}</pre>
+        </div>`;
+      }).join('');
       const pgHtml = pgs.map((x) => `
         <div class="pg-prog-item">
           <h5>${escapeHTML(x.kind || 'playground')} • Score ${x.score}</h5>
@@ -508,7 +521,11 @@
       const resMe = msg.results[playerId];
       const otherId = playerId === 'p1' ? 'p2' : 'p1';
       const resOp = msg.results[otherId];
-      if (resMe) yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}`;
+      if (resMe) {
+        const ideals = (msg.ideals && Array.isArray(msg.ideals[playerId])) ? msg.ideals[playerId] : [];
+        const idealText = ideals.length ? `\n\nIdeal answers:\n- ${ideals.join('\n- ')}` : '';
+        yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}${idealText}`;
+      }
       if (resOp) oppFeedback.textContent = `Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`; else oppFeedback.textContent = '';
       const meLife = msg.lives[playerId];
       const opLife = msg.lives[otherId];
@@ -527,8 +544,10 @@
         const items = [];
         const meId = playerId;
         const opId = otherId;
-        items.push({ round: msg.round, playerId: meId, prompt: prompts[meId] || '', answer: yourAnswer.value.trim(), score: msg.results[meId]?.score || 0, feedback: msg.results[meId]?.feedback || '', corrections: msg.results[meId]?.corrections || null });
-        if (msg.results[opId]) items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null });
+        const myIdeals = (msg.ideals && Array.isArray(msg.ideals[meId])) ? msg.ideals[meId] : [];
+        const opIdeals = (msg.ideals && Array.isArray(msg.ideals[opId])) ? msg.ideals[opId] : [];
+        items.push({ round: msg.round, playerId: meId, prompt: prompts[meId] || '', answer: yourAnswer.value.trim(), score: msg.results[meId]?.score || 0, feedback: msg.results[meId]?.feedback || '', corrections: msg.results[meId]?.corrections || null, language: (Array.isArray((msg.players||[]))? (msg.players.find(p=>p.id===meId)?.learningLanguage): '') || '', ideals: myIdeals });
+        if (msg.results[opId]) items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null, language: (Array.isArray((msg.players||[]))? (msg.players.find(p=>p.id===opId)?.learningLanguage): '') || '', ideals: opIdeals });
         renderHistoryMerge(items);
       }
     }
@@ -709,13 +728,17 @@
   function toHistoryHTML(x) {
     const title = `Ronda ${x.round} • Puntuación ${x.score}`;
     const corr = x.corrections ? `\nSugerencias: ${escapeHTML(x.corrections)}` : '';
+    const ideals = Array.isArray(x.ideals) && x.ideals.length ? `\n\nRespuestas ideales:\n- ${x.ideals.map(escapeHTML).join('\n- ')}` : '';
     return `
       <details class="history-item" open>
         <summary>${escapeHTML(title)} <span class="tag">${x.language || ''}</span></summary>
         <div class="content">
-          <div><strong>Enunciado:</strong> ${escapeHTML(x.prompt || '')}</div>
-          <div style="margin-top:6px"><strong>Tu respuesta:</strong><br/>${escapeHTML(x.answer || '')}</div>
-          <div style="margin-top:6px"><strong>Mejoras IA:</strong><br/>${escapeHTML(x.feedback || '')}${corr}</div>
+          <div><strong>Enunciado:</strong></div>
+          <pre>${escapeHTML(x.prompt || '')}</pre>
+          <div style="margin-top:6px"><strong>Tu respuesta:</strong></div>
+          <pre>${escapeHTML(x.answer || '')}</pre>
+          <div style="margin-top:6px"><strong>Mejoras IA:</strong></div>
+          <pre>${escapeHTML(x.feedback || '')}${corr}${ideals}</pre>
         </div>
       </details>
     `;

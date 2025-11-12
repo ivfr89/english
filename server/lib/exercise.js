@@ -113,81 +113,186 @@ export function getHints(topicKey, subtopicKey, nativeLanguage = 'Spanish') {
   return arr.join(' ');
 }
 
-async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, difficulty = 'medium' }) {
+function sample(arr, n = 1) {
+  const a = arr.slice();
+  const out = [];
+  while (a.length && out.length < n) out.push(a.splice(Math.floor(Math.random() * a.length), 1)[0]);
+  return out;
+}
+
+async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty = 'medium' }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
   const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3.1:free';
   const topicLabelEn = getLabel(topicKey, 'English');
   const subLabelEn = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.English) || '';
-  const system = 'You generate realistic conversational scenarios for language practice. Output ONLY the prompt text in the target language, no extra commentary.';
-  // Randomly choose a complex format to increase variety
+  const system = 'You generate realistic conversational scenarios for language practice. Output ONLY the prompt text in the target language.';
+  // Diversity knobs and topic-specific facets
+  const STYLES = [
+    'business professional', 'casual friendly', 'technical product', 'customer service empathetic', 'academic formal', 'startup scrappy', 'interview concise', 'negotiation assertive'
+  ];
+  function facetsByTopic(key) {
+    const common = ['time and place', 'participant roles with names', 'explicit dates', 'prior events', 'constraints or conflicts'];
+    const map = {
+      'customer-support': [
+        'order number and carrier', 'latest tracking scan location', 'original promise date and updated ETA', 'customer tier/policy (e.g., voucher rules)', 'SLA urgency and cause of delay (e.g., seasonal backlog, weather)'
+      ],
+      'work-conversation': [
+        'project name and stakeholders', 'deadline and scope boundaries', 'dependencies or blockers', 'recent meeting decisions', 'risks and trade-offs'
+      ],
+      'travel-conversation': [
+        'city and venue names', 'booking refs (flight/hotel)', 'dates/times of activities', 'transport constraints', 'preferences and budget range'
+      ],
+      'friend-chat': [
+        'relationship and tone', 'schedule constraints', 'location ideas', 'prior commitments', 'weather or event context'
+      ],
+      'interview': [
+        'role and company', 'example project details', 'metrics/outcomes', 'tools/stack', 'challenge and resolution'
+      ],
+      'negotiation': [
+        'objectives and non-negotiables', 'budget range and timeline', 'trade-offs and concessions', 'risks and mitigation', 'decision makers'
+      ],
+    };
+    return (map[key] || common).concat(common);
+  }
+  const style = sample(STYLES, 1)[0];
+  const facets = sample(facetsByTopic(topicKey), 5);
+  const diversityCue = Math.random().toString(36).slice(2, 10);
+  // Randomly choose a complex format; require longer contexts and include ideal answers
   const modes = ['dialogue', 'forum', 'podcast'];
-  const pick = modes[Math.floor(Math.random() * modes.length)];
+  const modeChoice = modes[Math.floor(Math.random() * modes.length)];
   let user;
-  if (pick === 'forum') {
-    user = `Create a ${difficulty} forum thread exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+  if (modeChoice === 'forum') {
+    user = `Create a ${difficulty} forum thread exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
 Instructions:
-- Start with a Context section summarizing the situation in 1–2 sentences.
-- Then show 2–3 short posts with usernames, e.g., "@Ana:" and "@Luis:" that discuss the topic.
-- Ask the learner to write a reply as "@Tú:" in ${targetLanguage}, 2–4 lines, referencing the context.
-Output ONLY the thread, for example:
-"Context: ...\n@Ana: ...\n@Luis: ...\n@Tú: (write your reply)"`;
-  } else if (pick === 'podcast') {
-    user = `Create a ${difficulty} podcast transcript exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+- Start with a Context section of 4–7 sentences in ${nativeLanguage}, rich in details (${facets.join(', ')}). Use explicit dates (e.g., "2 de diciembre de 2025" / "December 2, 2025"). Use native toponyms (e.g., "Londres" vs "London"). Vary the writing style: ${style}.
+- Then show 3–5 short posts with usernames (e.g., "@Ana:", "@Luis:") in ${targetLanguage} that discuss the topic.
+- Ask the learner to write a reply as "@Tú:" in ${targetLanguage}, 4–7 lines, referencing the context.
+- After the thread, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines.
+- Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+- Diversity cue (do NOT include in output): ${diversityCue}
+Output ONLY the thread and the "Ideal answers:" section, for example:
+"Context: ...\n@Ana: ...\n@Luis: ...\n@Tú: (write your reply)\nIdeal answers:\n- ...\n- ..."`;
+  } else if (modeChoice === 'podcast') {
+    user = `Create a ${difficulty} podcast transcript exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
 Instructions:
-- Start with a Context section (1 sentence) describing the episode segment.
-- Then include a short transcript with 2–3 exchanges labeled "Host:" and "Guest:".
-- Ask the learner to respond as "Guest:" in ${targetLanguage}, 2–4 lines, coherent with the context.
-Output ONLY the transcript, for example:
-"Context: ...\nHost: ...\nGuest: ...\nHost: ...\nGuest: (continue with your answer)"`;
+- Start with a Context section of 4–7 sentences in ${nativeLanguage} describing the episode segment (${facets.join(', ')}). Use explicit dates and native toponyms. Vary the writing style: ${style}.
+- Then include a transcript with 3–6 exchanges labeled "Host:" and "Guest:" in ${targetLanguage}.
+- Ask the learner to respond as "Guest:" in ${targetLanguage}, 4–7 lines, coherent with the context.
+- After the transcript, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines.
+- Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+- Diversity cue (do NOT include in output): ${diversityCue}
+Output ONLY the transcript and the "Ideal answers:" section, for example:
+"Context: ...\nHost: ...\nGuest: ...\nHost: ...\nGuest: (continue with your answer)\nIdeal answers:\n- ...\n- ..."`;
   } else {
-    user = `Create a ${difficulty} conversational exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+    user = `Create a ${difficulty} conversational exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
 Instructions:
-- Provide a Context section (1 sentence) and then a short conversation starter from "A:".
-- Ask the learner to reply as "B:" in ${targetLanguage}, 2–4 lines, natural and coherent.
-- Ensure the reply should consider the context.
-Output ONLY the scenario, for example:
-"Context: ...\nA: ...\nRespond as B: ..."`;
+- Provide a Context section (4–7 sentences) in ${nativeLanguage} (include ${facets.join(', ')}; explicit dates; native toponyms), then a short conversation starter from "A:" in ${targetLanguage}. Vary the writing style: ${style}.
+- Ask the learner to reply as "B:" in ${targetLanguage}, 4–7 lines, natural and coherent, considering the context.
+- After the conversation starter, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines as "B:".
+- Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+- Diversity cue (do NOT include in output): ${diversityCue}
+Output ONLY the scenario and the "Ideal answers:" section, for example:
+"Context: ...\nA: ...\nRespond as B: ...\nIdeal answers:\n- ...\n- ..."`;
   }
-  const controller = new AbortController();
-  const timeoutMs = Number(process.env.GEN_TIMEOUT_MS || 8000);
-  const fetchPromise = _fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer': process.env.OPENROUTER_REFERRER || 'http://localhost',
-      'X-Title': 'Language Duel Exercise',
-    },
-    body: JSON.stringify({ model, temperature: 0.5, messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ] }),
-    signal: controller.signal,
-  });
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutMs = Number(process.env.GEN_TIMEOUT_MS || 180000);
   let res;
-  try {
-    res = await fetchPromise;
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
-  clearTimeout(timer);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenRouter exercise error ${res.status}: ${text}`);
+  const maxAttempts = Math.max(1, Math.min(3, Number(process.env.GEN_RETRIES || 3)));
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const fetchPromise = _fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': process.env.OPENROUTER_REFERRER || 'http://localhost',
+        'X-Title': 'Language Duel Exercise',
+      },
+      body: JSON.stringify({ model, temperature: 0.85, top_p: 0.9, messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ] }),
+      signal: controller.signal,
+    });
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      res = await fetchPromise;
+      clearTimeout(timer);
+      if (res.ok) break;
+      const text = await res.text();
+      if (attempt === maxAttempts) throw new Error(`OpenRouter exercise error ${res.status}: ${text}`);
+      await new Promise(r => setTimeout(r, 1000));
+    } catch (e) {
+      clearTimeout(timer);
+      if (attempt === maxAttempts) throw e;
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
   const data = await res.json();
   const content = data?.choices?.[0]?.message?.content?.trim() || '';
   return content;
 }
 
-function mockExercise({ topicKey, subtopicKey, targetLanguage }) {
+function mockExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage }) {
   // Choose a format: simple dialogue, forum thread, or podcast transcript
   const variant = ['dialogue', 'forum', 'podcast'][Math.floor(Math.random() * 3)];
-  const lang = targetLanguage === 'Spanish' ? 'es' : 'en';
+  const convLang = targetLanguage === 'Spanish' ? 'es' : 'en';
+  const ctxLang = nativeLanguage === 'Spanish' ? 'es' : 'en';
   const sub = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.[targetLanguage]) || null;
+  function formatDate(ctxLang) {
+    const d = new Date();
+    d.setDate(d.getDate() + (1 + Math.floor(Math.random() * 20)));
+    const day = d.getDate();
+    const monthNamesEs = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const monthNamesEn = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const m = ctxLang === 'es' ? monthNamesEs[d.getMonth()] : monthNamesEn[d.getMonth()];
+    const y = d.getFullYear();
+    return ctxLang === 'es' ? `${day} de ${m} de ${y}` : `${m} ${day}, ${y}`;
+  }
+  function enrichContext(text) {
+    const NAMES_EN = ['Ana', 'Luis', 'Marta', 'Carlos', 'James', 'Priya', 'Lina', 'Marco'];
+    const NAMES_ES = NAMES_EN; // shared for simplicity
+    const CITIES_EN = ['Madrid', 'Barcelona', 'Valencia', 'Sevilla', 'Bilbao', 'London', 'Berlin', 'Mexico City'];
+    const CITIES_ES = CITIES_EN;
+    const name1 = (ctxLang === 'es' ? NAMES_ES : NAMES_EN)[Math.floor(Math.random()*NAMES_EN.length)];
+    const name2 = (ctxLang === 'es' ? NAMES_ES : NAMES_EN)[Math.floor(Math.random()*NAMES_EN.length)];
+    const city = (ctxLang === 'es' ? CITIES_ES : CITIES_EN)[Math.floor(Math.random()*CITIES_EN.length)];
+    const dateStr = formatDate(ctxLang);
+    // Topic-specific enrichment
+    let extra;
+    if (topicKey === 'customer-support') {
+      const carriers = ['DHL','UPS','FedEx','Correos','Royal Mail'];
+      const carrier = carriers[Math.floor(Math.random()*carriers.length)];
+      const order = `#A${Math.random().toString(36).slice(2,7).toUpperCase()}`;
+      extra = ctxLang === 'es'
+        ? `\nDetalles: Pedido ${order}. Transportista: ${carrier}. Último escaneo: ${city}. Promesa original: ${dateStr}. Política: cupón 10% si el retraso >72h. Causa: pico de demanda.`
+        : `\nDetails: Order ${order}. Carrier: ${carrier}. Last scan: ${city}. Original promise: ${dateStr}. Policy: 10% voucher if delay >72h. Cause: peak demand.`;
+    } else if (topicKey === 'work-conversation') {
+      const proj = `Project ${Math.random().toString(36).slice(2,5).toUpperCase()}`;
+      extra = ctxLang === 'es'
+        ? `\nDetalles: Proyecto ${proj}. Stakeholders: ${name1}, ${name2}. Dependencias: proveedor externo. Riesgos: alcance y plazos. Reunión clave: ${dateStr}.`
+        : `\nDetails: ${proj}. Stakeholders: ${name1}, ${name2}. Dependencies: external vendor. Risks: scope and timeline. Key meeting: ${dateStr}.`;
+    } else if (topicKey === 'travel-conversation') {
+      const booking = `REF${Math.floor(100000 + Math.random()*900000)}`;
+      extra = ctxLang === 'es'
+        ? `\nDetalles: Ciudad: ${city}. Reserva: ${booking}. Actividades: visita guiada ${dateStr}. Restricciones: transporte y horarios.`
+        : `\nDetails: City: ${city}. Booking: ${booking}. Activities: guided tour on ${dateStr}. Constraints: transport and schedules.`;
+    } else if (topicKey === 'interview') {
+      extra = ctxLang === 'es'
+        ? `\nDetalles: Rol: Desarrollador. Métricas: +20% rendimiento en ${dateStr.split(' ')[2]}. Stack: Node.js, React. Desafío: deuda técnica.`
+        : `\nDetails: Role: Developer. Metrics: +20% performance in ${new Date().getFullYear()}. Stack: Node.js, React. Challenge: technical debt.`;
+    } else if (topicKey === 'negotiation') {
+      const budget = 10000 + Math.floor(Math.random()*20000);
+      extra = ctxLang === 'es'
+        ? `\nDetalles: Objetivos: calidad y tiempo. Presupuesto: ~${budget}€. Plazo: ${dateStr}. Concesiones: fasear entregables.`
+        : `\nDetails: Objectives: quality and time. Budget: ~£${budget}. Timeline: ${dateStr}. Concessions: phase deliverables.`;
+    } else {
+      extra = ctxLang === 'es'
+        ? `\nDetalles: ${name1} y ${name2} se coordinan desde ${city}. Fecha clave: ${dateStr}.`
+        : `\nDetails: ${name1} and ${name2} coordinate from ${city}. Key date: ${dateStr}.`;
+    }
+    return text.replace(/^(Contexto?:[^\n]*)/m, (m0) => m0 + extra);
+  }
 
   const samples = {
     dialogue: {
@@ -204,27 +309,61 @@ function mockExercise({ topicKey, subtopicKey, targetLanguage }) {
     },
   };
   let base;
-  if (variant === 'forum') base = samples.forum[lang];
-  else if (variant === 'podcast') base = samples.podcast[lang];
-  else base = samples.dialogue[lang];
-  return sub ? `${base}\n(${targetLanguage === 'Spanish' ? 'Subtema' : 'Subtopic'}: ${sub})` : base;
+  function splitSample(str) {
+    const i = str.indexOf('\n');
+    return i === -1 ? [str, ''] : [str.slice(0, i), str.slice(i + 1)];
+  }
+  let ctxLine, rest;
+  if (variant === 'forum') {
+    const [c1] = splitSample(samples.forum[ctxLang]);
+    const [, r2] = splitSample(samples.forum[convLang]);
+    ctxLine = c1; rest = r2;
+  } else if (variant === 'podcast') {
+    const [c1] = splitSample(samples.podcast[ctxLang]);
+    const [, r2] = splitSample(samples.podcast[convLang]);
+    ctxLine = c1; rest = r2;
+  } else {
+    const [c1] = splitSample(samples.dialogue[ctxLang]);
+    const [, r2] = splitSample(samples.dialogue[convLang]);
+    ctxLine = c1; rest = r2;
+  }
+  base = ctxLine + '\n' + rest;
+  base = enrichContext(base);
+  const ideal1 = convLang === 'es'
+    ? '— Entiendo la situación. Primero, lamento los inconvenientes y me comprometo a dar seguimiento. Propongo confirmar el número de pedido, revisar el estado con logística y ofrecer una compensación si corresponde. ¿Te parece si empezamos por verificar el detalle del pedido para darte una fecha clara?'
+    : '— I understand the situation. First, I’m sorry for the inconvenience and I’ll follow up. I suggest confirming the order number, checking the status with logistics, and offering a small compensation if appropriate. Shall we start by verifying your order so I can give you a clear date?';
+  const ideal2 = convLang === 'es'
+    ? '— Gracias por el contexto. Para avanzar, resumiría el problema, confirmaría plazos realistas y acordaría próximos pasos. Si estás de acuerdo, puedo preparar un breve plan con fechas y responsables para que lo revisemos juntos.'
+    : '— Thanks for the context. To move forward, I’d summarize the problem, confirm realistic timelines, and agree on next steps. If that works, I can draft a short plan with dates and owners for us to review together.';
+  const suffix = `\nIdeal answers:\n- ${ideal1}\n- ${ideal2}`;
+  const withSub = sub ? `${base}\n(${targetLanguage === 'Spanish' ? 'Subtema' : 'Subtopic'}: ${sub})` : base;
+  return `${withSub}${suffix}`;
+}
+
+function parsePromptAndIdeals(text) {
+  const s = String(text || '');
+  const parts = s.split(/\n\s*Ideal answers?:/i);
+  if (parts.length === 1) return { prompt: s.trim(), ideals: [] };
+  const prompt = parts[0].trim();
+  const tail = parts.slice(1).join('\n');
+  const ideals = [];
+  tail.split(/\n-\s+/).forEach((line, idx) => {
+    const t = (idx === 0 ? line : ('- ' + line)).trim();
+    if (!t) return;
+    const cleaned = t.replace(/^[-•]\s*/, '').trim();
+    if (cleaned) ideals.push(cleaned);
+  });
+  return { prompt, ideals: ideals.slice(0, 2) };
 }
 
 export function createExerciseGenerator() {
-  const mode = process.env.EVAL_MODE || (process.env.OPENROUTER_API_KEY ? 'openrouter' : 'mock');
-  async function generatePrompt({ topicKey, subtopicKey, targetLanguage = 'English', difficulty }) {
-    if (mode === 'openrouter') {
-      try {
-        return await openrouterExercise({ topicKey, subtopicKey, targetLanguage, difficulty });
-      } catch (e) {
-        // fallback to mock on error
-        return mockExercise({ topicKey, subtopicKey, targetLanguage });
-      }
-    }
-    return mockExercise({ topicKey, subtopicKey, targetLanguage });
+  async function generatePrompt({ topicKey, subtopicKey, targetLanguage = 'English', nativeLanguage = 'Spanish', difficulty }) {
+    const raw = await openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty });
+    const parsed = parsePromptAndIdeals(raw);
+    return { ...parsed, source: 'ai' };
   }
   return { generatePrompt, topics: TOPICS };
 }
 
 export { getLabel };
-export { mockExercise };
+// mockExercise removed: app runs with IA only

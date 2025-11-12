@@ -49,12 +49,12 @@ async function openrouterEvaluate({ prompt, answer, targetLanguage }) {
     model: DEFAULT_MODEL,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: `Target language: ${targetLanguage}\nPrompt (may include Context/Thread/Transcript):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
+      { role: 'user', content: `Target language: ${targetLanguage}\nPrompt (may include Context/Thread/Transcript; the Context may be in the learner's native language):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
     ],
     temperature: 0.2,
   };
   const controller = new AbortController();
-  const timeoutMs = Number(process.env.EVAL_TIMEOUT_MS || 10000);
+  const timeoutMs = Number(process.env.EVAL_TIMEOUT_MS || 60000);
   const fetchPromise = _fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -83,16 +83,8 @@ async function openrouterEvaluate({ prompt, answer, targetLanguage }) {
   const content = data?.choices?.[0]?.message?.content || '';
   const parsed = extractJsonObject(content);
   if (!parsed || typeof parsed !== 'object') {
-    // Fallback: if model didn’t return clean JSON, use mock heuristic to avoid unfair zeros
-    const fallback = mockEvaluate({ prompt, answer, targetLanguage });
-    const trimmed = (answer || '').trim();
-    if (DEBUG) console.log('[eval] JSON parse failed, using fallback heuristic');
-    return {
-      ...fallback,
-      score: trimmed ? fallback.score : 0,
-      feedback: (fallback.feedback || 'Fallback evaluation') + ' • (LLM JSON parse failed)',
-      raw: content,
-    };
+    if (DEBUG) console.log('[eval] JSON parse failed');
+    return { score: 0, feedback: 'Evaluation failed (invalid JSON from model).', corrections: null, raw: content };
   }
   const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score))));
   return {
@@ -110,9 +102,10 @@ function mockEvaluate({ prompt, answer, targetLanguage }) {
   if (!trimmed) return { score: 0, feedback: targetLanguage === 'Spanish' ? 'Respuesta vacía.' : 'Empty answer.', corrections: null, raw: null };
 
   const p = String(prompt || '');
-  const targetLen = Math.min(200, p.length / 2 + 30);
-  const lenScore = Math.max(0, Math.min(60, Math.floor((trimmed.length / targetLen) * 60)));
-  const fluency = /[.!?]$/.test(trimmed) ? 20 : 12; // encourage punctuation
+  // Expect longer answers when the context is longer
+  const targetLen = Math.min(600, Math.max(120, Math.floor(p.length * 0.35 + 40)));
+  const lenScore = Math.max(0, Math.min(25, Math.floor((trimmed.length / targetLen) * 25)));
+  const fluency = /[.!?]$/.test(trimmed) ? 15 : 8; // encourage punctuation
 
   // Lightweight penalties for common issues
   const penalties = [];
@@ -128,9 +121,9 @@ function mockEvaluate({ prompt, answer, targetLanguage }) {
     const ctx = ctxMatch[1].toLowerCase();
     const words = Array.from(new Set(ctx.split(/[^a-záéíóúüñ]+/i).filter(w => w && w.length >= 4))).slice(0, 8);
     const hits = words.filter(w => trimmed.toLowerCase().includes(w));
-    contextBonus = Math.min(15, hits.length * 3);
+    contextBonus = Math.min(30, hits.length * 3);
   }
-  let score = Math.max(0, Math.min(100, lenScore + fluency - penaltySum + contextBonus));
+  let score = Math.max(0, Math.min(100, lenScore + fluency - penaltySum + contextBonus + 30));
 
   // Build short feedback and corrections in target language
   let feedback;
@@ -149,19 +142,9 @@ function mockEvaluate({ prompt, answer, targetLanguage }) {
 }
 
 export function createEvaluator() {
-  const mode = process.env.EVAL_MODE || (process.env.OPENROUTER_API_KEY ? 'openrouter' : 'mock');
+  const mode = 'openrouter';
   const evaluate = async (payload) => {
-    if (mode === 'openrouter') {
-      try {
-        return await openrouterEvaluate(payload);
-      } catch (e) {
-        if (DEBUG) console.log('[eval] openrouter error, using fallback mock:', e?.message || e);
-        const fallback = mockEvaluate(payload);
-        const trimmed = (payload?.answer || '').trim();
-        return { ...fallback, score: trimmed ? fallback.score : 0, feedback: (fallback.feedback || 'Fallback evaluation') + ' • (LLM request failed)' };
-      }
-    }
-    return mockEvaluate(payload);
+    return await openrouterEvaluate(payload);
   };
   return { evaluate, mode };
 }
