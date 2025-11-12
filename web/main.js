@@ -396,8 +396,8 @@
       yourFeedback.textContent = '';
       oppFeedback.textContent = '';
       prompts = {};
-      yourPrompt.textContent = 'Generando enunciado...'; yourPrompt.classList.add('fade-in');
-      oppPrompt.textContent = 'Generando enunciado...'; oppPrompt.classList.add('fade-in');
+      yourPrompt.textContent = 'Generando enunciado...';
+      oppPrompt.textContent = 'Generando enunciado...';
       if (yourHint) { yourHint.style.display = 'none'; yourHint.textContent = ''; }
       if (oppHint) { oppHint.style.display = 'none'; oppHint.textContent = ''; }
       submit.disabled = true;
@@ -408,8 +408,8 @@
 
     if (msg.type === 'prompts_ready') {
       prompts = msg.prompts || {};
-      yourPrompt.textContent = prompts[playerId] || 'Waiting...'; yourPrompt.classList.add('fade-in');
-      oppPrompt.textContent = prompts[playerId === 'p1' ? 'p2' : 'p1'] || 'Waiting...'; oppPrompt.classList.add('fade-in');
+      yourPrompt.textContent = prompts[playerId] || 'Waiting...';
+      oppPrompt.textContent = prompts[playerId === 'p1' ? 'p2' : 'p1'] || 'Waiting...';
       const hints = msg.hints || {};
       const myHint = hints[playerId];
       const oHint = hints[playerId === 'p1' ? 'p2' : 'p1'];
@@ -490,8 +490,8 @@
     if (msg.type === 'evaluating') {
       info.textContent = 'Evaluating answers...';
       toast('⏳ Evaluando respuestas...', 'primary');
-      yourFeedback.textContent = 'Evaluating...'; yourFeedback.classList.add('fade-in');
-      oppFeedback.textContent = 'Evaluating...'; oppFeedback.classList.add('fade-in');
+      yourFeedback.textContent = 'Evaluating...';
+      oppFeedback.textContent = 'Evaluating...';
       submit.disabled = true;
       spinnerOverlay.style.display = 'none';
     }
@@ -508,7 +508,7 @@
       const resMe = msg.results[playerId];
       const otherId = playerId === 'p1' ? 'p2' : 'p1';
       const resOp = msg.results[otherId];
-      if (resMe) yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}`; yourFeedback.classList.add('fade-in');
+      if (resMe) yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}`;
       if (resOp) oppFeedback.textContent = `Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`; else oppFeedback.textContent = '';
       const meLife = msg.lives[playerId];
       const opLife = msg.lives[otherId];
@@ -568,8 +568,8 @@
       toast('🫳 Robo de carta', 'warning');
     }
     if (msg.type === 'prompt_updated') {
-      if (msg.playerId === playerId) { yourPrompt.textContent = msg.prompt; yourPrompt.classList.add('fade-in'); }
-      else { oppPrompt.textContent = msg.prompt; oppPrompt.classList.add('fade-in'); }
+      if (msg.playerId === playerId) { yourPrompt.textContent = msg.prompt; }
+      else { oppPrompt.textContent = msg.prompt; }
     }
     if (msg.type === 'ai_assist_ready') {
       if (msg.playerId === playerId) { aiAssistBtn.disabled = false; info.textContent = 'AI Assist listo para este turno.'; toast('✨ AI Assist disponible', 'success'); }
@@ -577,7 +577,7 @@
     if (msg.type === 'ai_answer') {
       if (msg.playerId === playerId) {
         yourAnswer.value = msg.text;
-        yourAnswer.classList.add('fade-in');
+        // no animation to avoid layout shifts
       }
     }
   });

@@ -6,13 +6,19 @@ header, footer { padding: 8px 16px; color: var(--muted); }
 .mobile-only { display: none; }
 
 .arena { display: flex; gap: 12px; padding: 12px; height: calc(100vh - 96px); }
-.panel { flex: 1; background: var(--panel); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.panel { flex: 1; background: var(--panel); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
+.panel-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-auto-flow: row; grid-auto-rows: max-content; row-gap: 8px; isolation: isolate; align-content: start; }
 .panel.alt { background: #0b1220; }
 h2 { margin: 0 0 6px 0; font-size: 18px; }
 h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
 .life { background: #1f2937; border-radius: 6px; height: 12px; overflow: hidden; }
 .bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .4s ease; }
 .prompt { background: #0a0f1c; border: 1px solid #1f2937; padding: 8px; border-radius: 6px; min-height: 84px; }
+.prompt p { white-space: pre-wrap; }
+.prompt, .prompt-toolbar, #yourAnswer, .feedback, .history { position: static; z-index: 0; display: block; }
+.prompt + #yourAnswer { margin-top: 8px; }
+.feedback { margin-top: 8px; }
+.history { margin-top: 8px; }
 .hint { color: #93c5fd; font-size: 13px; margin-top: 6px; opacity: 0.9; }
 .prompt-toolbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .dict-popup { position: relative; margin-top: 8px; background: #0b1220; border: 1px solid #223; border-radius: 8px; padding: 8px 8px 8px 8px; z-index: 10; }
@@ -22,7 +28,10 @@ h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
 .dict-menu button { background: #22d3ee; color: #000; border: none; border-radius: 4px; padding: 2px 6px; font-weight: 700; cursor: pointer; }
 .loader { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(229,231,235,.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-textarea { width: 100%; background: #0a0f1c; border: 1px solid #223; border-radius: 6px; color: var(--text); padding: 8px; resize: vertical; }
+/* Avoid transform in fade to prevent visual overlap with following blocks */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+textarea { width: 100%; background: #0a0f1c; border: 1px solid #223; border-radius: 6px; color: var(--text); padding: 8px; resize: vertical; display:block; clear: both; }
+#yourAnswer { max-height: 40vh; }
 button { align-self: flex-start; background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 700; cursor: pointer; }
 button:disabled { opacity: .6; cursor: not-allowed; }
 .btn { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; user-select:none; color:#000; font-weight:700; background: var(--accent); }
@@ -33,8 +42,8 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .btn-small { padding:4px 8px; font-size:12px; }
 pre { background: #0a0f1c; border: 1px solid #223; padding: 8px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; min-height: 64px; }
 
-/* Answer bar anchored at bottom of panel to evitar mezclas */
-.submit-bar { position: sticky; bottom: 0; background: linear-gradient(180deg, rgba(11,18,32,0), rgba(11,18,32,.92) 35%, rgba(11,18,32,1)); padding-top: 6px; margin-top: 6px; border-top: 1px solid #223; }
+/* Answer bar fixed below scrollable body */
+.submit-bar { background: #0b1220; padding-top: 6px; margin-top: 6px; border-top: 1px solid #223; }
 
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .overlay .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 10px; padding: 16px; width: min(520px, 92vw); }
@@ -105,7 +114,6 @@ input, select { background: #0a0f1c; border: 1px solid #223; color: var(--text);
   .pg-card { width: 96vw; }
   .mode-grid { grid-template-columns: 1fr; }
   .prompt { min-height: 72px; }
-  .submit-bar { position: sticky; bottom: 0; }
 }
 
 /* Spinner overlay */
@@ -125,10 +133,10 @@ input, select { background: #0a0f1c; border: 1px solid #223; color: var(--text);
 .cooldown button { background: #f59e0b; color: #000; border: none; border-radius: 6px; padding: 4px 8px; font-weight: 700; cursor: pointer; }
 
 /* Animations */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes flash { 0% { filter: brightness(1); } 30% { filter: brightness(1.8); } 100% { filter: brightness(1); } }
-@keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dots { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
-.fade-in { animation: fadeIn 260ms ease-out; }
-.history-item { animation: slideIn 220ms ease-out; }
+.fade-in { animation: none; }
+.history-item { animation: none; }
 .bar.hit { animation: flash 420ms ease-in-out; }

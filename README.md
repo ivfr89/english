@@ -8,8 +8,10 @@
 - Split-screen UI (your prompt/feedback vs opponent's)
 - Turn-based spinner that selects a topic (Complete phrase, Translate, Short writing, Vocabulary, Roleplay, Fill blanks). Both players see the animated spin in sync. Topics are shown in each player’s native language.
 - Exercise types are generated per topic via OpenRouter (DeepSeek) or a mock fallback.
+- Complex prompts: frequent multi-turn scenarios (dialogue, forum thread, podcast transcript) with an explicit Context section.
 - 30s review cooldown between rounds to read feedback; both players can press Skip to end cooldown early and return to the spinner.
 - AI evaluation (OpenRouter + DeepSeek) or offline mock
+  - Rubric includes Context Adherence to reward on-topic, consistent answers.
 
 ## Tech
 

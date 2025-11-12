@@ -10,10 +10,10 @@ function buildSystemPrompt() {
   return (
     'You are an expert language examiner. Evaluate the learner\'s answer in the target language using this rubric and return ONLY JSON. ' +
     '\nRubric (weights → total 100):' +
-    '\n- Grammar & Spelling (40): subject–verb agreement, tense, articles, prepositions, capitalization; penalize misspellings (e.g., "neccesary" → "necessary").' +
+    '\n- Grammar & Spelling (35): subject–verb agreement, tense, articles, prepositions, capitalization; penalize misspellings (e.g., "neccesary" → "necessary").' +
     '\n- Word Choice & Collocations (20): natural phrasing and correct prepositions; penalize errors like "buy to you" → "buy you" / "buy a new book for you".' +
-    '\n- Coherence & Fluency (20): clarity, sentence flow, punctuation, and register.' +
-    '\n- Task Completion & Appropriateness (20): answers the prompt fully and uses appropriate tone (e.g., apology + offer to fix/replace when context requires).' +
+    '\n- Coherence & Fluency (15): clarity, sentence flow, punctuation, and register.' +
+    '\n- Task Completion & Context Adherence (30): answers the prompt fully and is consistent with any provided Context or prior conversation (forum thread, transcript, dialogue). Penalize off-topic or contradictions/hallucinations.' +
     '\nScoring: Assign partial points per category (0–category max). Sum and round to an integer 0–100. Minor typos should cause small deductions (1–5), not heavy penalties.' +
     '\nOutput format (JSON only): {"score": <0-100>, "feedback": "1-2 concise sentences in target language (mention 1 strength, 1 key fix)", "corrections": "short list of minimal corrections in target language"}.'
   );
@@ -49,7 +49,7 @@ async function openrouterEvaluate({ prompt, answer, targetLanguage }) {
     model: DEFAULT_MODEL,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: `Target language: ${targetLanguage}\nPrompt: ${prompt}\nAnswer: ${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
+      { role: 'user', content: `Target language: ${targetLanguage}\nPrompt (may include Context/Thread/Transcript):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
     ],
     temperature: 0.2,
   };
@@ -121,7 +121,16 @@ function mockEvaluate({ prompt, answer, targetLanguage }) {
   if (/\bi\b/.test(trimmed)) penalties.push({ p: 3, corr: targetLanguage === 'Spanish' ? 'Capitalizar “I”.' : 'Capitalize “I”.' });
 
   const penaltySum = penalties.reduce((a, x) => a + x.p, 0);
-  let score = Math.max(0, Math.min(100, lenScore + fluency - penaltySum));
+  // Simple context adherence: reward overlap with context keywords if present
+  let contextBonus = 0;
+  const ctxMatch = p.match(/Context(?:o)?:([\s\S]{0,300})/i);
+  if (ctxMatch) {
+    const ctx = ctxMatch[1].toLowerCase();
+    const words = Array.from(new Set(ctx.split(/[^a-záéíóúüñ]+/i).filter(w => w && w.length >= 4))).slice(0, 8);
+    const hits = words.filter(w => trimmed.toLowerCase().includes(w));
+    contextBonus = Math.min(15, hits.length * 3);
+  }
+  let score = Math.max(0, Math.min(100, lenScore + fluency - penaltySum + contextBonus));
 
   // Build short feedback and corrections in target language
   let feedback;

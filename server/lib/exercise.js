@@ -120,13 +120,35 @@ async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, diffi
   const topicLabelEn = getLabel(topicKey, 'English');
   const subLabelEn = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.English) || '';
   const system = 'You generate realistic conversational scenarios for language practice. Output ONLY the prompt text in the target language, no extra commentary.';
-  const user = `Create a ${difficulty} conversational exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+  // Randomly choose a complex format to increase variety
+  const modes = ['dialogue', 'forum', 'podcast'];
+  const pick = modes[Math.floor(Math.random() * modes.length)];
+  let user;
+  if (pick === 'forum') {
+    user = `Create a ${difficulty} forum thread exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
 Instructions:
-- Provide a short scenario setup (1 sentence) and a partner line starting with "A:".
-- Ask the learner to reply as "B:" in ${targetLanguage}, 2-4 lines, natural and coherent.
-- Avoid translations unless the category is explicitly translation (not used here).
-Output ONLY the scenario and partner line, e.g.:
+- Start with a Context section summarizing the situation in 1–2 sentences.
+- Then show 2–3 short posts with usernames, e.g., "@Ana:" and "@Luis:" that discuss the topic.
+- Ask the learner to write a reply as "@Tú:" in ${targetLanguage}, 2–4 lines, referencing the context.
+Output ONLY the thread, for example:
+"Context: ...\n@Ana: ...\n@Luis: ...\n@Tú: (write your reply)"`;
+  } else if (pick === 'podcast') {
+    user = `Create a ${difficulty} podcast transcript exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+Instructions:
+- Start with a Context section (1 sentence) describing the episode segment.
+- Then include a short transcript with 2–3 exchanges labeled "Host:" and "Guest:".
+- Ask the learner to respond as "Guest:" in ${targetLanguage}, 2–4 lines, coherent with the context.
+Output ONLY the transcript, for example:
+"Context: ...\nHost: ...\nGuest: ...\nHost: ...\nGuest: (continue with your answer)"`;
+  } else {
+    user = `Create a ${difficulty} conversational exercise in ${targetLanguage}. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+Instructions:
+- Provide a Context section (1 sentence) and then a short conversation starter from "A:".
+- Ask the learner to reply as "B:" in ${targetLanguage}, 2–4 lines, natural and coherent.
+- Ensure the reply should consider the context.
+Output ONLY the scenario, for example:
 "Context: ...\nA: ...\nRespond as B: ..."`;
+  }
   const controller = new AbortController();
   const timeoutMs = Number(process.env.GEN_TIMEOUT_MS || 8000);
   const fetchPromise = _fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -162,36 +184,30 @@ Output ONLY the scenario and partner line, e.g.:
 }
 
 function mockExercise({ topicKey, subtopicKey, targetLanguage }) {
-  const examples = {
-    'work-conversation': {
-      English: 'Context: You and a coworker discuss a deadline.\nA: "We need a clear plan to deliver by Friday. What do you suggest?"\nRespond as B with 2-4 lines in English.',
-      Spanish: 'Contexto: Hablas con un compañero sobre una entrega.\nA: "Necesitamos un plan claro para entregar el viernes. ¿Qué propones?"\nResponde como B con 2-4 líneas en español.',
+  // Choose a format: simple dialogue, forum thread, or podcast transcript
+  const variant = ['dialogue', 'forum', 'podcast'][Math.floor(Math.random() * 3)];
+  const lang = targetLanguage === 'Spanish' ? 'es' : 'en';
+  const sub = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.[targetLanguage]) || null;
+
+  const samples = {
+    dialogue: {
+      en: 'Context: You and a coworker discuss a deadline.\nA: "We need a clear plan to deliver by Friday. What do you suggest?"\nRespond as B with 2–4 lines in English.',
+      es: 'Contexto: Hablas con un compañero sobre una entrega.\nA: "Necesitamos un plan claro para entregar el viernes. ¿Qué propones?"\nResponde como B con 2–4 líneas en español.',
     },
-    'customer-support': {
-      English: 'Context: A customer reports an issue with their order.\nA: "Hi, my package arrived damaged. Can you help me?"\nRespond as B with 2-4 lines in English, empathetic and helpful.',
-      Spanish: 'Contexto: Un cliente reporta un problema con su pedido.\nA: "Hola, mi paquete llegó dañado. ¿Me pueden ayudar?"\nResponde como B con 2-4 líneas en español, empático y resolutivo.',
+    forum: {
+      en: 'Context: A user asks how to handle a delayed shipment to a customer.\n@Ana: I usually apologize and offer a small discount.\n@Luis: Ask for the order number first and check status.\n@You: (write a 2–4 line reply in English referencing the context)',
+      es: 'Contexto: Un usuario pregunta cómo manejar un envío retrasado con un cliente.\n@Ana: Suelo disculparme y ofrecer un pequeño descuento.\n@Luis: Pide primero el número de pedido y revisa el estado.\n@Tú: (escribe una respuesta de 2–4 líneas en español haciendo referencia al contexto)',
     },
-    'travel-conversation': {
-      English: 'Context: You ask for local recommendations while traveling.\nA: "Welcome! What kind of places do you want to visit?"\nRespond as B with 2-4 lines in English.',
-      Spanish: 'Contexto: Pides recomendaciones locales durante un viaje.\nA: "¡Bienvenido! ¿Qué tipo de lugares quieres visitar?"\nResponde como B con 2-4 líneas en español.',
-    },
-    'friend-chat': {
-      English: 'Context: A friend invites you to an event this weekend.\nA: "There is a concert on Saturday evening. Are you in?"\nRespond as B with 2-4 lines in English.',
-      Spanish: 'Contexto: Un amigo te invita a un evento este fin de semana.\nA: "Hay un concierto el sábado por la tarde. ¿Te apuntas?"\nResponde como B con 2-4 líneas en español.',
-    },
-    'interview': {
-      English: 'Context: Job interview.\nA: "Can you describe a challenging project and your role?"\nRespond as B with 2-4 lines in English.',
-      Spanish: 'Contexto: Entrevista de trabajo.\nA: "¿Puedes describir un proyecto desafiante y tu rol?"\nResponde como B con 2-4 líneas en español.',
-    },
-    'negotiation': {
-      English: 'Context: Negotiating project scope with a client.\nA: "Could we add an extra feature without changing the deadline?"\nRespond as B with 2-4 lines in English, proposing trade-offs.',
-      Spanish: 'Contexto: Negociando alcance de proyecto con un cliente.\nA: "¿Podemos agregar una funcionalidad extra sin cambiar la fecha de entrega?"\nResponde como B con 2-4 líneas en español, proponiendo compromisos.',
+    podcast: {
+      en: 'Context: A podcast segment on planning a team offsite.\nHost: Many teams feel disconnected lately.\nGuest: A clear agenda and budget help.\nHost: What would you prioritize first?\nGuest: (continue with a 2–4 line answer in English consistent with the context)',
+      es: 'Contexto: Un segmento de podcast sobre planear un offsite de equipo.\nHost: Muchos equipos se sienten desconectados últimamente.\nInvitado: Una agenda clara y presupuesto ayudan.\nHost: ¿Qué priorizarías primero?\nInvitado: (continúa con una respuesta de 2–4 líneas en español coherente con el contexto)',
     },
   };
-  const bundle = examples[topicKey] || examples['work-conversation'];
-  const base = bundle?.[targetLanguage] || bundle?.English;
-  const sub = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.[targetLanguage]) || null;
-  return sub ? `${base}\n(Subtema: ${sub})` : base;
+  let base;
+  if (variant === 'forum') base = samples.forum[lang];
+  else if (variant === 'podcast') base = samples.podcast[lang];
+  else base = samples.dialogue[lang];
+  return sub ? `${base}\n(${targetLanguage === 'Spanish' ? 'Subtema' : 'Subtopic'}: ${sub})` : base;
 }
 
 export function createExerciseGenerator() {

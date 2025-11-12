@@ -103,46 +103,48 @@
     </header>
 
     <main class="arena">
-      <sl-card class="panel" id="left">
+      <div class="panel" id="left">
         <h2>You</h2>
         <sl-progress-bar id="lifeYouBar" max="100" value="100"></sl-progress-bar>
         <div class="life" id="lifeYouFallback" style="display:none"><div id="lifeYou" class="bar" style="width:100%"></div></div>
-        <div class="cards">
-          <h4>Cartas</h4>
-          <div id="yourCards" class="card-list"></div>
-        </div>
-        <div class="prompt">
-          <h3>Your Prompt</h3>
-          <p id="yourPrompt">Waiting...</p>
-          <p id="yourHint" class="hint" style="display:none"></p>
-          <div class="row prompt-toolbar" style="margin-top:6px; gap:6px; flex-wrap:wrap">
-            <button id="addFavBtn" class="btn btn-neutral btn-small" onclick="_addFavMain()">⭐ Guardar nota</button>
-            <button id="dictExplainBtn" class="btn btn-neutral btn-small" onclick="_dictExplain()">💡 Entender</button>
-            <input id="dictText" type="text" placeholder="Texto a explicar…" style="display:none; min-width:180px" />
-            <button id="dictGoBtn" class="btn btn-primary btn-small" style="display:none" onclick="_dictGo()">Analizar</button>
+        <div class="panel-body">
+          <div class="cards">
+            <h4>Cartas</h4>
+            <div id="yourCards" class="card-list"></div>
           </div>
-          <div id="dictPopup" class="dict-popup" style="display:none">
-            <button id="dictClose" class="dict-close" title="Cerrar">×</button>
-            <span id="dictLoader" class="loader" style="display:none"></span>
-            <div id="dictContent" class="dict-content"></div>
+          <div class="prompt">
+            <h3>Your Prompt</h3>
+            <p id="yourPrompt">Waiting...</p>
+            <p id="yourHint" class="hint" style="display:none"></p>
+            <div class="row prompt-toolbar" style="margin-top:6px; gap:6px; flex-wrap:wrap">
+              <button id="addFavBtn" class="btn btn-neutral btn-small" onclick="_addFavMain()">⭐ Guardar nota</button>
+              <button id="dictExplainBtn" class="btn btn-neutral btn-small" onclick="_dictExplain()">💡 Entender</button>
+              <input id="dictText" type="text" placeholder="Texto a explicar…" style="display:none; min-width:180px" />
+              <button id="dictGoBtn" class="btn btn-primary btn-small" style="display:none" onclick="_dictGo()">Analizar</button>
+            </div>
+            <div id="dictPopup" class="dict-popup" style="display:none">
+              <button id="dictClose" class="dict-close" title="Cerrar">×</button>
+              <span id="dictLoader" class="loader" style="display:none"></span>
+              <div id="dictContent" class="dict-content"></div>
+            </div>
+          </div>
+          <textarea id="yourAnswer" rows="6" placeholder="Write your answer..."></textarea>
+          <div class="feedback">
+            <h4>Feedback</h4>
+            <pre id="yourFeedback"></pre>
+          </div>
+          <div class="history">
+            <h4>Historial</h4>
+            <div id="yourHistory" class="history-list"></div>
           </div>
         </div>
-        <textarea id="yourAnswer" rows="6" placeholder="Write your answer..."></textarea>
         <div class="submit-bar row split">
           <button id="submit" class="btn btn-primary">Submit</button>
           <button id="aiAssistBtn" class="btn btn-neutral" disabled>AI Assist</button>
         </div>
-        <div class="feedback">
-          <h4>Feedback</h4>
-          <pre id="yourFeedback"></pre>
-        </div>
-        <div class="history">
-          <h4>Historial</h4>
-          <div id="yourHistory" class="history-list"></div>
-        </div>
-      </sl-card>
+      </div>
 
-      <sl-card class="panel alt" id="right">
+      <div class="panel alt" id="right">
         <h2>Opponent</h2>
         <sl-progress-bar id="lifeOppBar" max="100" value="100"></sl-progress-bar>
         <div class="life" id="lifeOppFallback" style="display:none"><div id="lifeOpp" class="bar" style="width:100%"></div></div>
@@ -163,7 +165,7 @@
           <h4>Historial Oponente</h4>
           <div id="oppHistory" class="history-list"></div>
         </div>
-      </sl-card>
+      </div>
     </main>
 
     <footer>
