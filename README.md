@@ -9,6 +9,7 @@
 - Turn-based spinner that selects a topic (Complete phrase, Translate, Short writing, Vocabulary, Roleplay, Fill blanks). Both players see the animated spin in sync. Topics are shown in each player’s native language.
 - Exercise types are generated per topic via OpenRouter (DeepSeek) or a mock fallback.
 - Complex prompts: frequent multi-turn scenarios (dialogue, forum thread, podcast transcript) with an explicit, longer Context section. Each prompt includes 1–2 ideal answers revealed after scoring to reinforce learning.
+- Per-player CEFR level (A1–C2): each player chooses their level; prompt complexity and evaluation expectations adapt to that level in both single and multiplayer.
 - 30s review cooldown between rounds to read feedback; both players can press Skip to end cooldown early and return to the spinner.
 - AI evaluation (OpenRouter + DeepSeek) or offline mock
   - Rubric includes Context Adherence to reward on-topic, consistent answers.
@@ -44,6 +45,8 @@ Without these, the server falls back to a built-in mock evaluator.
 4. Open the game in a browser: http://localhost:3000
 
 5. Create a room, share the room code with your friend, and play.
+
+Tip: In the home screen, choose your Learning language, Native language, and CEFR Level. The game tailors prompt length/vocabulary and evaluation strictness to your level.
 
 ### Single-player (AUTO_BOT)
 
@@ -89,6 +92,40 @@ This app uses WebSockets. Choose a host that supports long-lived WebSocket conne
 - Ranking and ELO per player
 - Per-skill modes (grammar-only, vocabulary-only)
 - Spectator mode and replays
+
+## Notas de Desarrollo (resumen cambios recientes)
+
+- Estabilidad UI en escritorio y móvil
+  - Reestructurado el panel izquierdo con `panel-body` desplazable y barra de envío fija para evitar solapes entre prompt, botones y textarea.
+  - Eliminadas animaciones con transform que causaban solapes en rondas siguientes; sin “fade” que mueva layout.
+  - Corrección de “doble submit” removiendo el `onclick` inline y quedando un único handler JS.
+
+- Generación de prompts (IA‑only) y variedad
+  - Eliminado el modo mock: la generación y la evaluación se hacen solo vía OpenRouter. En caso de fallo, se muestra error y puede reintentarse; no hay contenido de relleno.
+  - Ampliados temas: además de trabajo/atención cliente/viajes/amistad/entrevista/negociación, se añadieron salud, educación, tecnología, compras, deportes, entretenimiento, familia, vida diaria, comida/cocina y finanzas (con subtemas EN/ES).
+  - Prompts más largos con “Context” rico en la lengua nativa del jugador y conversación multi‑turno (diálogo/foro/podcast). Cada prompt incluye 1–2 “Ideal answers” que se muestran tras evaluar.
+  - Sanitización del prompt: se mantiene toda la conversación, pero si la IA rellena la línea del alumno (Guest/B/@Tú), se normaliza a “(continue with your answer)” para que no venga la respuesta “puesta”.
+
+- Single‑player mejorado
+  - Solo P1 usa IA para el prompt (no hay bot). AI Assist queda habilitado por defecto en cada ronda.
+  - Elección directa de tema/subtema: en modo single, los ítems de la leyenda funcionan como chips clicables. Puedes elegir tema (stage=topic) y luego subtema (stage=subtopic), o seguir usando la ruleta.
+
+- Evaluación y feedback
+  - La rúbrica pondera “Context Adherence”. El feedback del jugador incluye “Ideal answers”.
+  - Historial y progreso muestran: enunciado, tu respuesta, feedback/correcciones e “Ideal answers”.
+
+- Tiempos y timeouts
+  - Generación: `GEN_TIMEOUT_MS` por defecto 180s, `GEN_RETRIES` 3 (con reintentos cortos). “Soft timeout”: si tarda, no vuelve a la ruleta; se avisa y se espera el resultado.
+  - Evaluación: `EVAL_TIMEOUT_MS` por defecto 60s.
+  - AI Assist/Explicación: `AI_ASSIST_TIMEOUT_MS` por defecto 60s.
+  - Enfriamiento entre rondas: `COOLDOWN_MS` por defecto 180s (configurable).
+  - Indicador en UI: en el footer se muestra “(IA 850ms)” al llegar el enunciado.
+
+### Uso rápido (single‑player con chips)
+- Tras la ruleta, puedes:
+  - Hacer clic en un tema de la leyenda (chips) para seleccionar tema.
+  - Luego, clic en un subtema (chips) para generar la ronda.
+  - O pulsar “Girar” si prefieres aleatorio.
 
 ## UI Notes
 

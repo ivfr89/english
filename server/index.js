@@ -318,6 +318,7 @@ function roomSnapshot(room) {
       name: p.name,
       learningLanguage: p.learningLanguage,
       nativeLanguage: p.nativeLanguage,
+      level: p.level || 'B1-B2',
       life: p.life,
       cards: p.cards || [],
       aiAssistReady: !!p.aiAssistReady,
@@ -413,7 +414,7 @@ function startRound(room, categoryKey, subtopicKey) {
     const tStart = Date.now();
     const player = room.players[pid];
     try {
-      const { prompt, ideals, source } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage, nativeLanguage: player.nativeLanguage });
+      const { prompt, ideals, source } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: player.learningLanguage, nativeLanguage: player.nativeLanguage, level: player.level || 'B1-B2' });
       return { pid, prompt, ideals, source: source === 'ai' ? 'ai' : 'mock', ms: Date.now() - tStart };
     } catch (e) {
       throw e;
@@ -459,7 +460,7 @@ async function maybeResolveRound(room) {
       const answer = room.answers[pid] || '';
       const prompt = room.prompts[pid] || '';
       try {
-        const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage });
+        const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage, level: player.level || 'B1-B2' });
         results[pid] = ev;
       } catch (e) {
         results[pid] = { score: 0, feedback: 'Evaluation failed', corrections: null, raw: String(e) };
@@ -471,7 +472,7 @@ async function maybeResolveRound(room) {
     const answer = room.answers[pid] || '';
     const prompt = room.prompts[pid] || '';
     try {
-      const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage });
+      const ev = await evaluator.evaluate({ prompt, answer, targetLanguage: player.learningLanguage, level: player.level || 'B1-B2' });
       results[pid] = ev;
     } catch (e) {
       results[pid] = { score: 0, feedback: 'Evaluation failed', corrections: null, raw: String(e) };
@@ -519,6 +520,7 @@ async function maybeResolveRound(room) {
       feedback: results[pid]?.feedback || '',
       corrections: results[pid]?.corrections || null,
       language: room.players[pid]?.learningLanguage || '',
+      level: room.players[pid]?.level || 'B1-B2',
       ideals: Array.isArray(room.ideals?.[pid]) ? room.ideals[pid] : [],
     };
     room.history.push(item);
@@ -574,7 +576,7 @@ function startCooldown(room) {
 }
 
 wss.on('connection', (ws, req) => {
-  const player = { id: null, name: null, learningLanguage: 'English', life: 100, ws };
+  const player = { id: null, name: null, learningLanguage: 'English', nativeLanguage: undefined, level: 'B1-B2', life: 100, ws };
   let room = null;
 
   // Attach session user if present
@@ -608,6 +610,7 @@ wss.on('connection', (ws, req) => {
       player.name = msg.name?.slice(0, 20) || 'Player 1';
       player.learningLanguage = msg.learningLanguage || 'English';
       player.nativeLanguage = msg.nativeLanguage || (player.learningLanguage === 'English' ? 'Spanish' : 'English');
+      player.level = msg.level || 'B1-B2';
       player.life = 100;
 
       room = { code, players: { [pId]: player }, status: 'waiting', round: 0, prompts: {}, answers: {}, turn: null, lastCategory: null, lastSubtopic: null, history: [], stage: 'topic' };
@@ -617,7 +620,7 @@ wss.on('connection', (ws, req) => {
         const botId = 'p2';
         const botLearn = player.learningLanguage === 'English' ? 'Spanish' : 'English';
         const botNative = botLearn === 'English' ? 'Spanish' : 'English';
-        room.players[botId] = { id: botId, name: 'Bot', learningLanguage: botLearn, nativeLanguage: botNative, life: 100, ws: null, isBot: true };
+        room.players[botId] = { id: botId, name: 'Bot', learningLanguage: botLearn, nativeLanguage: botNative, level: player.level || 'B1-B2', life: 100, ws: null, isBot: true };
         room.turn = Math.random() < 0.5 ? 'p1' : 'p2';
         room.status = 'waiting_spin';
         room.stage = 'topic';
@@ -642,6 +645,7 @@ wss.on('connection', (ws, req) => {
       player.name = msg.name?.slice(0, 20) || (pId === 'p1' ? 'Player 1' : 'Player 2');
       player.learningLanguage = msg.learningLanguage || 'Spanish';
       player.nativeLanguage = msg.nativeLanguage || (player.learningLanguage === 'English' ? 'Spanish' : 'English');
+      player.level = msg.level || 'B1-B2';
       player.life = 100;
       room = existing;
       room.players[pId] = player;
@@ -672,6 +676,7 @@ wss.on('connection', (ws, req) => {
       player.name = msg.name?.slice(0, 20) || 'Player';
       player.learningLanguage = msg.learningLanguage || 'English';
       player.nativeLanguage = msg.nativeLanguage || (player.learningLanguage === 'English' ? 'Spanish' : 'English');
+      player.level = msg.level || 'B1-B2';
       player.life = 100;
 
       room = {
@@ -773,7 +778,7 @@ wss.on('connection', (ws, req) => {
         const targetLang = room.players[pid].learningLanguage || 'English';
         log('[cards] reroll_prompt', { room: room.code, playerId: pid });
         try {
-          const { prompt: newPrompt, ideals: sols } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: targetLang, nativeLanguage: room.players[pid].nativeLanguage || 'Spanish' });
+          const { prompt: newPrompt, ideals: sols } = await exerciseGen.generatePrompt({ topicKey: room.lastCategory, subtopicKey: room.lastSubtopic, targetLanguage: targetLang, nativeLanguage: room.players[pid].nativeLanguage || 'Spanish', level: room.players[pid].level || 'B1-B2' });
           room.prompts[pid] = newPrompt;
           room.ideals[pid] = Array.isArray(sols) ? sols : [];
           broadcastRoom(room, { type: 'prompt_updated', playerId: pid, prompt: newPrompt });
@@ -799,9 +804,10 @@ wss.on('connection', (ws, req) => {
       if (!room.players[pid].aiAssistReady) return;
       const prompt = room.prompts[pid] || '';
       const lang = room.players[pid].learningLanguage || 'English';
+      const level = room.players[pid].level || 'B1-B2';
       log('[ai] answer_request', { room: room.code, playerId: pid });
       try {
-        const text = await generateAIAnswer({ prompt, targetLanguage: lang });
+        const text = await generateAIAnswer({ prompt, targetLanguage: lang, level });
         room.players[pid].aiAssistReady = false;
         broadcastRoom(room, { type: 'ai_answer', playerId: pid, text });
         broadcastRoom(room, roomSnapshot(room));
@@ -940,7 +946,8 @@ wss.on('connection', (ws, req) => {
       for (const ex of list) {
         const ans = (answers.find(a => a.id === ex.id)?.answer || '').slice(0, 1000);
         try {
-          const ev = await evaluator.evaluate({ prompt: ex.prompt, answer: ans, targetLanguage: getPlayer(room, 'p1')?.learningLanguage || 'English' });
+          const p1 = getPlayer(room, 'p1');
+          const ev = await evaluator.evaluate({ prompt: ex.prompt, answer: ans, targetLanguage: p1?.learningLanguage || 'English', level: p1?.level || 'B1-B2' });
           results.push({ id: ex.id, score: ev.score, feedback: ev.feedback, corrections: ev.corrections || null });
         } catch {
           results.push({ id: ex.id, score: 0, feedback: 'Evaluation failed', corrections: null });
@@ -1079,12 +1086,12 @@ function withTimeout(promise, ms, label) {
     promise.then((v) => { clearTimeout(id); resolve(v); }, (e) => { clearTimeout(id); reject(e); });
   });
 }
-async function generateAIAnswer({ prompt, targetLanguage }) {
+async function generateAIAnswer({ prompt, targetLanguage, level }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
   const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3.1:free';
-  const system = 'You craft an excellent, natural reply in the target language for the given conversational prompt. Keep it concise (3-5 lines), coherent, and appropriate. Return only the reply text.';
-  const user = `Target language: ${targetLanguage}\nPrompt: ${prompt}\nWrite the reply as if you were the learner.`;
+  const system = 'You craft an excellent, natural reply in the target language for the given conversational prompt. Keep it concise, coherent, and appropriate. Return only the reply text.';
+  const user = `Target language: ${targetLanguage}\nLearner CEFR level: ${level || 'B1-B2'}\nPrompt: ${prompt}\nWrite the reply as if you were the learner, at this level.`;
   const controller = new AbortController();
   const timeoutMs = Number(process.env.AI_ASSIST_TIMEOUT_MS || 60000);
   const res = await withTimeout(_fetch2('https://openrouter.ai/api/v1/chat/completions', {

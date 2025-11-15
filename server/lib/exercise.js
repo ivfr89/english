@@ -220,13 +220,13 @@ function sample(arr, n = 1) {
   return out;
 }
 
-async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty = 'medium' }) {
+async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty = 'medium', level = 'B1-B2' }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
   const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat-v3.1:free';
   const topicLabelEn = getLabel(topicKey, 'English');
   const subLabelEn = (getSubtopics(topicKey).find(s => s.key === subtopicKey)?.labels?.English) || '';
-  const system = 'You generate realistic conversational scenarios for language practice. Output ONLY the prompt text in the target language.';
+  const system = 'You generate realistic conversational scenarios for language practice. Output ONLY the prompt text in the target language. Never include the learner\'s reply content. The learner line must end with a placeholder like (continue with your answer) and nothing after it.';
   // Diversity knobs and topic-specific facets
   const STYLES = [
     'business professional', 'casual friendly', 'technical product', 'customer service empathetic', 'academic formal', 'startup scrappy', 'interview concise', 'negotiation assertive'
@@ -261,39 +261,78 @@ async function openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativ
   // Randomly choose a complex format; require longer contexts and include ideal answers
   const modes = ['dialogue', 'forum', 'podcast'];
   const modeChoice = modes[Math.floor(Math.random() * modes.length)];
+  // Line length guidance by CEFR level
+  function levelLines(lvl) {
+    switch ((lvl || '').toUpperCase()) {
+      case 'A1-A2': return '2–3';
+      case 'A2-B1': return '3–4';
+      case 'B1-B2': return '4–6';
+      case 'B2-C1': return '5–7';
+      case 'C1-C2': return '6–8';
+      default: return '4–6';
+    }
+  }
+  const lines = levelLines(level);
   let user;
   if (modeChoice === 'forum') {
     user = `Create a ${difficulty} forum thread exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+Learner CEFR level: ${level}. Adjust vocabulary, structures, and required length to this level.
 Instructions:
 - Start with a Context section of 4–7 sentences in ${nativeLanguage}, rich in details (${facets.join(', ')}). Use explicit dates (e.g., "2 de diciembre de 2025" / "December 2, 2025"). Use native toponyms (e.g., "Londres" vs "London"). Vary the writing style: ${style}.
 - Then show 3–5 short posts with usernames (e.g., "@Ana:", "@Luis:") in ${targetLanguage} that discuss the topic.
-- Ask the learner to write a reply as "@Tú:" in ${targetLanguage}, 4–7 lines, referencing the context.
-- After the thread, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines.
+- Ask the learner to write a reply as "@Tú:" in ${targetLanguage}, ${lines} lines, referencing the context.
+- After the thread, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each ${lines} lines.
 - Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+
+Output rules (strict):
+- Do NOT include the learner\'s reply content anywhere.
+- For the learner line, output exactly one placeholder line and nothing after it, e.g.: "@Tú: (continue with your answer)".
+- Do NOT add any continuation lines under the learner line.
+- Output only the thread and the "Ideal answers:" section. No extra commentary.
+- Use exactly the labels shown (e.g., Context:, @Ana:, @Luis:, @Tú:).
 - Diversity cue (do NOT include in output): ${diversityCue}
-Output ONLY the thread and the "Ideal answers:" section, for example:
-"Context: ...\n@Ana: ...\n@Luis: ...\n@Tú: (write your reply)\nIdeal answers:\n- ...\n- ..."`;
+
+Example format:
+"Context: ...\n@Ana: ...\n@Luis: ...\n@Tú: (continue with your answer)\nIdeal answers:\n- ...\n- ..."`;
   } else if (modeChoice === 'podcast') {
     user = `Create a ${difficulty} podcast transcript exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+Learner CEFR level: ${level}. Adjust vocabulary, structures, and required length to this level.
 Instructions:
 - Start with a Context section of 4–7 sentences in ${nativeLanguage} describing the episode segment (${facets.join(', ')}). Use explicit dates and native toponyms. Vary the writing style: ${style}.
 - Then include a transcript with 3–6 exchanges labeled "Host:" and "Guest:" in ${targetLanguage}.
-- Ask the learner to respond as "Guest:" in ${targetLanguage}, 4–7 lines, coherent with the context.
-- After the transcript, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines.
+- Ask the learner to respond as "Guest:" in ${targetLanguage}, ${lines} lines, coherent with the context.
+- After the transcript, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each ${lines} lines.
 - Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+
+Output rules (strict):
+- Do NOT include the learner\'s reply content anywhere.
+- For the learner line, output exactly one placeholder line and nothing after it, e.g.: "Guest: (continue with your answer)".
+- Do NOT add any continuation lines under the learner line.
+- Output only the transcript and the "Ideal answers:" section. No extra commentary.
+- Use exactly the labels shown (e.g., Context:, Host:, Guest:).
 - Diversity cue (do NOT include in output): ${diversityCue}
-Output ONLY the transcript and the "Ideal answers:" section, for example:
+
+Example format:
 "Context: ...\nHost: ...\nGuest: ...\nHost: ...\nGuest: (continue with your answer)\nIdeal answers:\n- ...\n- ..."`;
   } else {
     user = `Create a ${difficulty} conversational exercise. Category: ${topicLabelEn}${subLabelEn ? ` / ${subLabelEn}` : ''}.
+Learner CEFR level: ${level}. Adjust vocabulary, structures, and required length to this level.
 Instructions:
 - Provide a Context section (4–7 sentences) in ${nativeLanguage} (include ${facets.join(', ')}; explicit dates; native toponyms), then a short conversation starter from "A:" in ${targetLanguage}. Vary the writing style: ${style}.
-- Ask the learner to reply as "B:" in ${targetLanguage}, 4–7 lines, natural and coherent, considering the context.
-- After the conversation starter, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each 4–7 lines as "B:".
+- Ask the learner to reply as "B:" in ${targetLanguage}, ${lines} lines, natural and coherent, considering the context.
+- After the conversation starter, add a section titled "Ideal answers:" with 1–2 strong sample replies in ${targetLanguage}, each ${lines} lines as "B:".
 - Avoid reusing phrasing from earlier exercises; prefer fresh structures and vocabulary.
+
+Output rules (strict):
+- Do NOT include the learner\'s reply content anywhere.
+- For the learner line, output exactly one placeholder line and nothing after it, e.g.: "B: (continue with your answer)".
+- Do NOT add any continuation lines under the learner line.
+- Output only the scenario and the "Ideal answers:" section. No extra commentary.
+- Use exactly the labels shown (e.g., Context:, A:, B:).
 - Diversity cue (do NOT include in output): ${diversityCue}
-Output ONLY the scenario and the "Ideal answers:" section, for example:
-"Context: ...\nA: ...\nRespond as B: ...\nIdeal answers:\n- ...\n- ..."`;
+
+Example format:
+"Context: ...\nA: ...\nB: (continue with your answer)\nIdeal answers:\n- ...\n- ..."`;
   }
   const timeoutMs = Number(process.env.GEN_TIMEOUT_MS || 180000);
   let res;
@@ -480,8 +519,10 @@ function parsePromptAndIdeals(text) {
 }
 
 export function createExerciseGenerator() {
-  async function generatePrompt({ topicKey, subtopicKey, targetLanguage = 'English', nativeLanguage = 'Spanish', difficulty }) {
-    let raw = await openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty });
+  async function generatePrompt({ topicKey, subtopicKey, targetLanguage = 'English', nativeLanguage = 'Spanish', difficulty, level }) {
+    // If a CEFR level is provided, use it to steer difficulty/length
+    const diff = level ? `CEFR ${level}` : (difficulty || 'medium');
+    let raw = await openrouterExercise({ topicKey, subtopicKey, targetLanguage, nativeLanguage, difficulty: diff, level: level || 'B1-B2' });
     raw = sanitizeRawExerciseContent(raw);
     const parsed = parsePromptAndIdeals(raw);
     return { ...parsed, source: 'ai' };

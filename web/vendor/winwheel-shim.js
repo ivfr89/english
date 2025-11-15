@@ -23,6 +23,8 @@
       this.outerRadius = opts.outerRadius || Math.min(this.width, this.height)/2 - 10;
       this.innerRadius = opts.innerRadius || 0;
       this.textAlignment = opts.textAlignment || 'outer';
+      // Support simple text orientation modes: 'tangent' (along arc), 'radial' (from center out), 'horizontal' (page horizontal)
+      this.textOrientation = opts.textOrientation || 'tangent';
       this.pointerAngle = opts.pointerAngle || 0;
       this.rotationAngle = 0; // degrees
       this.animation = opts.animation || { type: 'spinToStop', duration: 2, spins: 5, stopAngle: 0 };
@@ -73,20 +75,51 @@
           ctx.restore();
         }
         // text
-        const label = String(seg.text||'');
-        if (label){
+        const rawLabel = String(seg.text||'');
+        if (rawLabel){
           ctx.save();
           const mid = a0 + (a1-a0)/2;
           const r = this.outerRadius - 26;
+          const arcAngle = (a1 - a0);
+          // Available width along the arc (approximate straight projection)
+          const maxWidth = Math.max(18, r * arcAngle - 10);
           ctx.rotate(mid);
           ctx.translate(r,0);
-          ctx.rotate(Math.PI/2);
+          if (this.textOrientation === 'tangent') {
+            ctx.rotate(Math.PI/2);
+          } else if (this.textOrientation === 'horizontal') {
+            ctx.rotate(-mid);
+          } else {
+            // 'radial' or unknown: leave baseline along radius
+          }
           ctx.fillStyle = seg.textFillStyle || '#e5e7eb';
-          ctx.font = `${seg.textFontSize||14}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif`;
+          const fontFamily = 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+          let fs = Number(seg.textFontSize||14);
+          if (!Number.isFinite(fs) || fs <= 0) fs = 14;
           ctx.textAlign = 'center';
-          // truncate long labels
-          const txt = label.length>22? label.slice(0,21)+'…' : label;
-          ctx.fillText(txt, 0, 4);
+          // Shrink to fit
+          ctx.font = `${fs}px ${fontFamily}`;
+          let label = rawLabel;
+          let w = ctx.measureText(label).width;
+          while (w > maxWidth && fs > 9){
+            fs -= 1;
+            ctx.font = `${fs}px ${fontFamily}`;
+            w = ctx.measureText(label).width;
+          }
+          // If still too wide at min size, ellipsize progressively
+          if (w > maxWidth){
+            const ell = '…';
+            // Reserve width for ellipsis
+            const ellW = ctx.measureText(ell).width;
+            let cut = label.length;
+            while (cut > 1 && (ctx.measureText(label.slice(0, cut)).width + ellW) > maxWidth){
+              cut -= 1;
+            }
+            label = cut > 1 ? (label.slice(0, cut) + ell) : '';
+          }
+          if (label){
+            ctx.fillText(label, 0, 4);
+          }
           ctx.restore();
         }
       }

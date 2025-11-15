@@ -58,6 +58,16 @@
           </select>
         </div>
         <div class="row">
+          <label id="levelLabel">Level</label>
+          <select id="level">
+            <option>A1-A2</option>
+            <option>A2-B1</option>
+            <option selected>B1-B2</option>
+            <option>B2-C1</option>
+            <option>C1-C2</option>
+          </select>
+        </div>
+        <div class="row">
           <label>Native</label>
           <select id="native">
             <option>Spanish</option>
@@ -104,7 +114,7 @@
 
     <main class="arena">
       <div class="panel" id="left">
-        <h2>You</h2>
+        <h2 id="youTitle">You</h2>
         <sl-progress-bar id="lifeYouBar" max="100" value="100"></sl-progress-bar>
         <div class="life" id="lifeYouFallback" style="display:none"><div id="lifeYou" class="bar" style="width:100%"></div></div>
         <div class="panel-body">
@@ -145,7 +155,7 @@
       </div>
 
       <div class="panel alt" id="right">
-        <h2>Opponent</h2>
+        <h2 id="oppTitle">Opponent</h2>
         <sl-progress-bar id="lifeOppBar" max="100" value="100"></sl-progress-bar>
         <div class="life" id="lifeOppFallback" style="display:none"><div id="lifeOpp" class="bar" style="width:100%"></div></div>
         <div class="cards">

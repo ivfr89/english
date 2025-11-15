@@ -14,6 +14,7 @@
   let lastUserEmail = '';
   const langSelect = el('language');
   const nativeSelect = el('native');
+  const levelSelect = el('level');
   const createBtn = el('createRoom');
   const singleBtn = el('singlePlayer');
   const joinBtn = el('joinRoom');
@@ -27,6 +28,8 @@
   const roundLabel = el('roundLabel');
   const lifeYouBar = el('lifeYouBar');
   const lifeOppBar = el('lifeOppBar');
+  const youTitle = el('youTitle');
+  const oppTitle = el('oppTitle');
   const yourPrompt = el('yourPrompt');
   const yourHint = el('yourHint');
   const oppPrompt = el('oppPrompt');
@@ -83,6 +86,7 @@
   const spThresholdLabel = el('spThresholdLabel');
   const mpTitle = el('mpTitle');
   const mpDesc = el('mpDesc');
+  const levelLabel = el('levelLabel');
 
   let playerId = null;
   let roomCode = null;
@@ -111,6 +115,7 @@
   let mobileView = 'you'; // 'you' | 'opponent'
   let inPlayground = false;
   let pgBlockOpenUntil = 0; // guard to avoid immediate re-open after exit
+  let lastPlayers = [];
 
   // Size the wheel immediately on load to avoid oversized initial render
   ensureWheelSize();
@@ -124,6 +129,7 @@
     if (es) {
       if (spDesc) spDesc.textContent = 'Practica solo con un bot. Pierdes vida si tu puntuación cae por debajo del umbral.';
       if (spThresholdLabel) spThresholdLabel.textContent = 'Umbral';
+      if (levelLabel) levelLabel.textContent = 'Nivel';
       if (singleBtn) singleBtn.textContent = 'Comenzar práctica';
       if (mpDesc) mpDesc.textContent = 'Juega 1v1 en línea. Crea una sala o únete con un código.';
       if (createBtn) createBtn.textContent = 'Crear sala';
@@ -133,6 +139,7 @@
     } else {
       if (spDesc) spDesc.textContent = 'Practice solo with a bot. You lose HP if your score falls below the threshold.';
       if (spThresholdLabel) spThresholdLabel.textContent = 'Threshold';
+      if (levelLabel) levelLabel.textContent = 'Level';
       if (singleBtn) singleBtn.textContent = 'Start practice';
       if (mpDesc) mpDesc.textContent = 'Play 1v1 online. Create a room or join with a code.';
       if (createBtn) createBtn.textContent = 'Create room';
@@ -152,6 +159,7 @@
     name: 'ld.name',
     learn: 'ld.learn',
     native: 'ld.native',
+    level: 'ld.level',
     threshold: 'ld.threshold',
     lastMode: 'ld.lastMode', // 'single' | 'multi'
     lastRoom: 'ld.lastRoom',
@@ -163,6 +171,7 @@
   if (nameInput) nameInput.value = lsGet(LS.name, nameInput.value || '');
   if (langSelect) langSelect.value = lsGet(LS.learn, langSelect.value || 'English');
   if (nativeSelect) nativeSelect.value = lsGet(LS.native, nativeSelect.value || 'Spanish');
+  if (levelSelect) levelSelect.value = lsGet(LS.level, levelSelect.value || 'B1-B2');
   if (spThresholdInput) {
     const storedTh = parseInt(lsGet(LS.threshold, spThresholdInput.value || '70'), 10);
     if (!isNaN(storedTh)) spThresholdInput.value = String(storedTh);
@@ -172,6 +181,7 @@
   if (nameInput) nameInput.addEventListener('input', () => lsSet(LS.name, nameInput.value.trim()));
   if (langSelect) langSelect.addEventListener('change', () => lsSet(LS.learn, langSelect.value));
   if (nativeSelect) nativeSelect.addEventListener('change', () => lsSet(LS.native, nativeSelect.value));
+  if (levelSelect) levelSelect.addEventListener('change', () => lsSet(LS.level, levelSelect.value));
   if (spThresholdInput) spThresholdInput.addEventListener('change', () => lsSet(LS.threshold, spThresholdInput.value));
 
   // Remember last mode and room
@@ -305,6 +315,7 @@
       if (oppHint) { if (oHint) { oppHint.style.display = ''; oppHint.textContent = oHint; } else { oppHint.style.display = 'none'; oppHint.textContent = ''; } }
       if (Array.isArray(msg.topics)) { topics = msg.topics; renderLegend(); if (hasWinwheel) buildWheel(); else updateWheelColors(); }
       if (msg.players) {
+        lastPlayers = msg.players;
         const me = msg.players.find((p) => p.id === playerId);
         const op = msg.players.find((p) => p.id !== playerId);
         if (hasSl) {
@@ -316,6 +327,9 @@
           if (ly && me) ly.style.width = `${me.life ?? 100}%`;
           if (lo && op) lo.style.width = `${op.life ?? 100}%`;
         }
+        // Update titles with CEFR level
+        if (youTitle && me) youTitle.textContent = `You${me.level ? ` (${me.level})` : ''}`;
+        if (oppTitle && op) oppTitle.textContent = `Opponent${op.level ? ` (${op.level})` : ''}`;
         renderCards(me?.cards || [], op?.cards || [], !!me?.silenced);
         aiAssistBtn.disabled = !me?.aiAssistReady;
       }
@@ -524,9 +538,16 @@
       if (resMe) {
         const ideals = (msg.ideals && Array.isArray(msg.ideals[playerId])) ? msg.ideals[playerId] : [];
         const idealText = ideals.length ? `\n\nIdeal answers:\n- ${ideals.join('\n- ')}` : '';
-        yourFeedback.textContent = `Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}${idealText}`;
+        const meObj = Array.isArray(lastPlayers) ? lastPlayers.find(p => p.id === playerId) : null;
+        yourFeedback.textContent = `${meObj?.level ? `Level: ${meObj.level}\n` : ''}Score: ${resMe.score}\n${resMe.feedback}${resMe.corrections ? `\nCorrections: ${resMe.corrections}` : ''}${idealText}`;
       }
-      if (resOp) oppFeedback.textContent = `Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`; else oppFeedback.textContent = '';
+      if (resOp) {
+        const otherId = playerId === 'p1' ? 'p2' : 'p1';
+        const opObj = Array.isArray(lastPlayers) ? lastPlayers.find(p => p.id === otherId) : null;
+        oppFeedback.textContent = `${opObj?.level ? `Level: ${opObj.level}\n` : ''}Score: ${resOp.score}\n${resOp.feedback}${resOp.corrections ? `\nCorrections: ${resOp.corrections}` : ''}`;
+      } else {
+        oppFeedback.textContent = '';
+      }
       const meLife = msg.lives[playerId];
       const opLife = msg.lives[otherId];
       if (hasSl) {
@@ -546,8 +567,8 @@
         const opId = otherId;
         const myIdeals = (msg.ideals && Array.isArray(msg.ideals[meId])) ? msg.ideals[meId] : [];
         const opIdeals = (msg.ideals && Array.isArray(msg.ideals[opId])) ? msg.ideals[opId] : [];
-        items.push({ round: msg.round, playerId: meId, prompt: prompts[meId] || '', answer: yourAnswer.value.trim(), score: msg.results[meId]?.score || 0, feedback: msg.results[meId]?.feedback || '', corrections: msg.results[meId]?.corrections || null, language: (Array.isArray((msg.players||[]))? (msg.players.find(p=>p.id===meId)?.learningLanguage): '') || '', ideals: myIdeals });
-        if (msg.results[opId]) items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null, language: (Array.isArray((msg.players||[]))? (msg.players.find(p=>p.id===opId)?.learningLanguage): '') || '', ideals: opIdeals });
+        items.push({ round: msg.round, playerId: meId, prompt: prompts[meId] || '', answer: yourAnswer.value.trim(), score: msg.results[meId]?.score || 0, feedback: msg.results[meId]?.feedback || '', corrections: msg.results[meId]?.corrections || null, language: (Array.isArray(lastPlayers)? (lastPlayers.find(p=>p.id===meId)?.learningLanguage): '') || '', level: (Array.isArray(lastPlayers)? (lastPlayers.find(p=>p.id===meId)?.level): '') || '', ideals: myIdeals });
+        if (msg.results[opId]) items.push({ round: msg.round, playerId: opId, prompt: prompts[opId] || '', answer: '(oculto)', score: msg.results[opId]?.score || 0, feedback: msg.results[opId]?.feedback || '', corrections: msg.results[opId]?.corrections || null, language: (Array.isArray(lastPlayers)? (lastPlayers.find(p=>p.id===opId)?.learningLanguage): '') || '', level: (Array.isArray(lastPlayers)? (lastPlayers.find(p=>p.id===opId)?.level): '') || '', ideals: opIdeals });
         renderHistoryMerge(items);
       }
     }
@@ -605,8 +626,9 @@
     const name = nameInput.value.trim() || 'Player';
     learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
+    const level = levelSelect?.value || 'B1-B2';
     rememberMode('multi');
-    send({ type: 'create_room', name, learningLanguage, nativeLanguage });
+    send({ type: 'create_room', name, learningLanguage, nativeLanguage, level });
     status.textContent = 'Creating room...';
   });
 
@@ -616,9 +638,10 @@
     const name = nameInput.value.trim() || 'Player';
     learningLanguage = langSelect.value;
     nativeLanguage = nativeSelect.value;
+    const level = levelSelect?.value || 'B1-B2';
     rememberMode('multi');
     rememberRoom(code);
-    send({ type: 'join_room', roomCode: code, name, learningLanguage, nativeLanguage });
+    send({ type: 'join_room', roomCode: code, name, learningLanguage, nativeLanguage, level });
     status.textContent = 'Joining room...';
   });
 
@@ -645,10 +668,11 @@
       const name = nameInput.value.trim() || 'Player';
       learningLanguage = langSelect.value;
       nativeLanguage = nativeSelect.value;
+      const level = levelSelect?.value || 'B1-B2';
       const th = parseInt(spThresholdInput?.value || '70', 10) || 70;
       targetThreshold = Math.max(40, Math.min(100, th));
       rememberMode('single');
-      send({ type: 'single_start', name, learningLanguage, nativeLanguage, threshold: targetThreshold });
+      send({ type: 'single_start', name, learningLanguage, nativeLanguage, level, threshold: targetThreshold });
       status.textContent = 'Starting single player...';
     });
   }
@@ -731,7 +755,7 @@
     const ideals = Array.isArray(x.ideals) && x.ideals.length ? `\n\nRespuestas ideales:\n- ${x.ideals.map(escapeHTML).join('\n- ')}` : '';
     return `
       <details class="history-item" open>
-        <summary>${escapeHTML(title)} <span class="tag">${x.language || ''}</span></summary>
+        <summary>${escapeHTML(title)} <span class="tag">${x.language || ''}</span>${x.level ? ` <span class="tag">${escapeHTML(x.level)}</span>` : ''}</summary>
         <div class="content">
           <div><strong>Enunciado:</strong></div>
           <pre>${escapeHTML(x.prompt || '')}</pre>
@@ -773,7 +797,10 @@
     ensureWheelSize();
     if (!wheelCanvas || !Array.isArray(topics) || topics.length === 0 || typeof Winwheel === 'undefined') return;
     const size = wheelCanvas.width || 320;
-    const fontSize = size <= 280 ? 11 : size <= 320 ? 13 : size <= 360 ? 14 : 16;
+    let fontSize = size <= 280 ? 11 : size <= 320 ? 13 : size <= 360 ? 14 : 16;
+    if (topics.length >= 14) fontSize -= 2;
+    if (topics.length >= 18) fontSize -= 2;
+    if (fontSize < 10) fontSize = 10;
     const segs = topics.map((t, i) => ({
       fillStyle: COLORS[i % COLORS.length],
       text: localizeTopic(t.key),
@@ -788,6 +815,8 @@
         outerRadius: Math.floor((wheelCanvas.width || 420) / 2) - 20,
         innerRadius: 12,
         textAlignment: 'outer',
+        // Orient labels along the arc for readability
+        textOrientation: 'tangent',
         pointerAngle: 0,
         animation: { type: 'spinToStop', duration: 2, spins: 5 },
       });

@@ -42,14 +42,14 @@ function extractJsonObject(text) {
   return null;
 }
 
-async function openrouterEvaluate({ prompt, answer, targetLanguage }) {
+async function openrouterEvaluate({ prompt, answer, targetLanguage, level }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('Missing OPENROUTER_API_KEY');
   const body = {
     model: DEFAULT_MODEL,
     messages: [
       { role: 'system', content: buildSystemPrompt() },
-      { role: 'user', content: `Target language: ${targetLanguage}\nPrompt (may include Context/Thread/Transcript; the Context may be in the learner's native language):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
+      { role: 'user', content: `Target language: ${targetLanguage}\nLearner CEFR level: ${level || 'B1-B2'}\nGuidance: Consider this level when judging complexity, expected length, and vocabulary. Be more lenient on advanced structures at lower levels; be stricter at higher levels.\nPrompt (may include Context/Thread/Transcript; the Context may be in the learner's native language):\n${prompt}\n---\nAnswer:\n${answer}\nReturn ONLY JSON (no markdown, no code fences).` },
     ],
     temperature: 0.2
   };
