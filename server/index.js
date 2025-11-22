@@ -13,6 +13,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.use((_, res, next) => {
+  // Allow auth popups (e.g., Google) to communicate back to opener
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  next();
+});
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 

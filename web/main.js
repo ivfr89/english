@@ -693,7 +693,12 @@
   submit.addEventListener('click', () => {
     const text = yourAnswer.value.trim();
     if (!text) return;
-    send({ type: 'answer', text });
+    const sent = send({ type: 'answer', text });
+    if (!sent) {
+      status.textContent = 'Sin conexión. Reintentando...';
+      submit.disabled = false;
+      return;
+    }
     submit.disabled = true;
     info.textContent = 'Waiting for opponent...';
   });
