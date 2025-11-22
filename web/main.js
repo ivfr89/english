@@ -1,5 +1,8 @@
 (() => {
-  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+  const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+  let ws = null;
+  let reconnectTimer = null;
+  let reconnectAttempts = 0;
 
   // UI refs
   const el = (id) => document.getElementById(id);
@@ -116,6 +119,8 @@
   let inPlayground = false;
   let pgBlockOpenUntil = 0; // guard to avoid immediate re-open after exit
   let lastPlayers = [];
+
+  connectWs();
 
   // Size the wheel immediately on load to avoid oversized initial render
   ensureWheelSize();
@@ -272,11 +277,32 @@
   // Single submit code path via button click; keep this as a proxy
   // Deprecated helper removed; use button click handler only
 
-  function send(obj) { ws.send(JSON.stringify(obj)); }
+  function send(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (status) status.textContent = 'Reconectando...';
+      return false;
+    }
+    ws.send(JSON.stringify(obj));
+    return true;
+  }
 
-  ws.addEventListener('open', () => { status.textContent = ''; });
+  function handleWsOpen() {
+    reconnectAttempts = 0;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (status) status.textContent = '';
+  }
 
-  ws.addEventListener('message', (ev) => {
+  function handleWsClose() {
+    if (status) status.textContent = 'Conexión perdida. Reintentando...';
+    scheduleReconnect();
+  }
+
+  function handleWsError() {
+    if (status) status.textContent = 'Error de conexión. Reintentando...';
+    try { ws?.close(); } catch {}
+  }
+
+  function handleWsMessage(ev) {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'error') status.textContent = msg.error;
 
@@ -620,7 +646,26 @@
         // no animation to avoid layout shifts
       }
     }
-  });
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer) return;
+    const delay = Math.min(10000, 1000 * Math.pow(1.5, reconnectAttempts || 0));
+    reconnectAttempts += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connectWs();
+    }, delay);
+  }
+
+  function connectWs() {
+    const socket = new WebSocket(WS_URL);
+    ws = socket;
+    socket.addEventListener('open', handleWsOpen);
+    socket.addEventListener('message', handleWsMessage);
+    socket.addEventListener('close', handleWsClose);
+    socket.addEventListener('error', handleWsError);
+  }
 
   createBtn.addEventListener('click', () => {
     const name = nameInput.value.trim() || 'Player';
